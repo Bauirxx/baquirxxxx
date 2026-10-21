@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ScreenPorter brand palette -->
+    <color name="brand_primary">#FF6B35</color>
+    <color name="brand_primary_dark">#E55A2B</color>
+    <color name="brand_accent">#FFB627</color>
+    <color name="brand_background">#FAFAFA</color>
+    <color name="brand_surface">#FFFFFF</color>
+    <color name="brand_text_primary">#1A1A1A</color>
+    <color name="brand_text_secondary">#6B6B6B</color>
+    <color name="brand_text_tertiary">#9B9B9B</color>
+    <color name="brand_border">#E5E5E5</color>
+
+    <!-- States -->
+    <color name="status_success">#22C55E</color>
+    <color name="status_warning">#F59E0B</color>
+    <color name="status_error">#EF4444</color>
+    <color name="status_info">#3B82F6</color>
+
+    <!-- Dark theme overrides -->
+    <color name="brand_background_dark">#0A0A0A</color>
+    <color name="brand_surface_dark">#1A1A1A</color>
+    <color name="brand_text_primary_dark">#FAFAFA</color>
+    <color name="brand_text_secondary_dark">#A1A1A1</color>
+    <color name="brand_text_tertiary_dark">#6B6B6B</color>
+    <color name="brand_border_dark">#2A2A2A</color>
+
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+    <color name="scrim">#80000000</color>
+</resources>

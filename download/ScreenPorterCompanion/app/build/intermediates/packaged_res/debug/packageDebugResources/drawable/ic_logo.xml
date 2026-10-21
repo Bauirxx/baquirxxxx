@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Phone outline -->
+    <path
+        android:fillColor="#FF6B35"
+        android:pathData="M14,4 L34,4 C36.2,4 38,5.8 38,8 L38,40 C38,42.2 36.2,44 34,44 L14,44 C11.8,44 10,42.2 10,40 L10,8 C10,5.8 11.8,4 14,4 Z" />
+    <!-- Screen -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16,9 L32,9 L32,35 L16,35 Z" />
+    <!-- Play arrow on screen -->
+    <path
+        android:fillColor="#FF6B35"
+        android:pathData="M22,15 L22,29 L30,22 Z" />
+    <!-- Home button dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,40 m-2,0 a2,2 0,1,0 4,0 a2,2 0,1,0 -4,0" />
+</vector>

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="@dimen/spacing_sm"
+    android:paddingBottom="@dimen/spacing_sm">
+
+    <!-- Status indicator -->
+    <ImageView
+        android:id="@+id/imagePermissionStatus"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_warning"
+        android:contentDescription="@null"
+        android:background="@drawable/bg_status_warning"
+        android:padding="2dp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/spacing_md"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/textPermissionTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/ScreenPorter.TextAppearance.Body"
+            android:textColor="@color/brand_text_primary"
+            android:textStyle="bold"
+            tools:text="Controlo (Acessibilidade)" />
+
+        <TextView
+            android:id="@+id/textPermissionDesc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textAppearance="@style/ScreenPorter.TextAppearance.Caption"
+            android:textColor="@color/brand_text_tertiary"
+            tools:text="Permite tocar/deslizar à distância" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnGrantPermission"
+        style="@style/ScreenPorter.Button.Outline"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="100dp"
+        android:minHeight="40dp"
+        android:text="@string/permission_action_grant" />
+</LinearLayout>

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ScreenPorter</string>
+    <string name="app_subtitle">Companion</string>
+
+    <!-- Branding -->
+    <string name="brand_tagline">Espelhar, controlar e monitorar — aberto e consentido</string>
+
+    <!-- Installation -->
+    <string name="install_title">Configuração do ScreenPorter</string>
+    <string name="install_subtitle">A app serve para os dois fins: espelhar/controlar à distância E monitorizar com consentimento. Conclua os passos abaixo.</string>
+
+    <!-- Step 1: Server -->
+    <string name="step_server_title">Servidor</string>
+    <string name="step_server_desc">Endereço, utilizador e senha do seu PC ScreenPorter (pode ler o QR code do painel para preencher automaticamente)</string>
+    <string name="step_server_hint">ex.: 100.88.155.59:4820</string>
+    <string name="step_server_address">Endereço do servidor</string>
+    <string name="step_server_user">Utilizador</string>
+    <string name="step_server_password">Senha</string>
+    <string name="step_server_save">Guardar servidor</string>
+    <string name="step_server_saved">Servidor guardado</string>
+
+    <!-- Step 2: Permissions -->
+    <string name="step_permissions_title">Permissões</string>
+    <string name="step_permissions_desc">Ative cada uma conforme necessário — todas são opcionais exceto Acessibilidade</string>
+    <string name="permission_accessibility">Controlo (Acessibilidade)</string>
+    <string name="permission_accessibility_desc">Permite tocar/deslizar à distância, tirar screenshots e voltar a ligar sozinho</string>
+    <string name="permission_battery">Funcionar sempre</string>
+    <string name="permission_battery_desc">Isenta a poupança de energia para não ser morto</string>
+    <string name="permission_notifications">Notificações</string>
+    <string name="permission_notifications_desc">Mantém o aviso fixo de que está ligado (Android 13+)</string>
+    <string name="permission_location">Localização (opcional)</string>
+    <string name="permission_location_desc">Para ver o telemóvel no mapa do painel</string>
+    <string name="permission_calls">Registo de chamadas (opcional)</string>
+    <string name="permission_calls_desc">Lista chamadas recebidas/efetuadas/perdidas (não grava áudio)</string>
+    <string name="permission_sms">SMS (opcional)</string>
+    <string name="permission_sms_desc">Lê SMS recebidos/enviados. Mensagens suspeitas são sinalizadas (cyberbullying, drogas, etc.)</string>
+    <string name="permission_app_usage">Uso de apps (opcional)</string>
+    <string name="permission_app_usage_desc">Tempo de tela por app — relatório horário</string>
+    <string name="permission_notif_listener">Notificações de mensagens (opcional)</string>
+    <string name="permission_notif_listener_desc">Deteta risco em notificações de WhatsApp/Instagram/TikTok — apenas flag + categoria, sem expor conversas</string>
+    <string name="permission_overlay">Botão SOS flutuante (opcional)</string>
+    <string name="permission_overlay_desc">Desenha um botão de pânico sobre outras apps — envia alerta com localização</string>
+    <string name="permission_browser">Histórico de navegação (opcional)</string>
+    <string name="permission_browser_desc">Lê URLs visitadas (apenas para browsers que expõem o histórico público)</string>
+    <string name="permission_granted">Concedida</string>
+    <string name="permission_missing">Em falta</string>
+    <string name="permission_action_grant">Conceder</string>
+
+    <!-- Step 3: Connect -->
+    <string name="step_connect_title">Ligar / Desligar</string>
+    <string name="step_connect_desc">Inicia a captura de ecrã, o controlo remoto e a monitorização</string>
+    <string name="connect_button">Ligar</string>
+    <string name="disconnect_button">Desligar</string>
+    <string name="status_connected">Ligado</string>
+    <string name="status_disconnected">Desligado</string>
+    <string name="status_connecting">A ligar…</string>
+
+    <!-- Step 4: Protection -->
+    <string name="step_protection_title">Proteção contra remoção (opcional)</string>
+    <string name="step_protection_desc">Modo Device Owner — impede a desinstalação pelo utilizador</string>
+    <string name="protection_instructions">Para ativar a proteção contra remoção (opcional):\n\n1. Cabo USB + debugging ativado no telemóvel\n2. Remova todas as contas Google do telemóvel\n3. No PC executar:\n   adb shell dpm set-device-owner com.screenporter.companion/.AdminReceiver\n\nEsta funcionalidade é ABERTA: o telemóvel mostra claramente que é "gerido" e a app permanece visível.</string>
+
+    <!-- New actions -->
+    <string name="action_qr_scan">Ler QR code</string>
+    <string name="action_open_consent">Ver consentimento</string>
+    <string name="action_open_consent_sign">Assinar consentimento</string>
+    <string name="sos_enable">Ativar botão SOS</string>
+    <string name="sos_disable">Desativar botão SOS</string>
+
+    <!-- QR scanner -->
+    <string name="qr_title">Ler QR code do painel</string>
+    <string name="qr_prompt">Aponte a câmara para o QR code mostrado no painel do ScreenPorter</string>
+    <string name="qr_success">Servidor configurado</string>
+    <string name="qr_cancelled">Leitura cancelada</string>
+    <string name="qr_invalid">QR code inválido — formato esperado: JSON ou screenporter://setup?...</string>
+
+    <!-- Consent wizard -->
+    <string name="consent_title">Consentimento legítimo</string>
+    <string name="consent_step_jurisdiction">1. Selecione a sua jurisdição</string>
+    <string name="consent_legal_text">2. Texto legal aplicável</string>
+    <string name="consent_step_accept">3. Marque as três caixas para continuar</string>
+    <string name="consent_cb_parent">Declaro que sou pai, mãe ou responsável legal do menor cujo dispositivo será monitorado.</string>
+    <string name="consent_cb_inform">Comprometo-me a informar o titular do dispositivo sobre a existência do monitoramento.</string>
+    <string name="consent_cb_terms">Li e aceito os Termos de Uso e a Política de Privacidade (versão aplicável à minha jurisdição).</string>
+    <string name="consent_warning">Marcar estas caixas gera um registo auditável (data/hora, jurisdição, versão legal, modelo do aparelho). Pode revogar a qualquer momento nas Configurações.</string>
+    <string name="consent_button_sign">Assinar consentimento</string>
+    <string name="consent_all_required">Tem de marcar as 3 caixas para continuar.</string>
+    <string name="consent_required">Tem de assinar o consentimento antes de ligar.</string>
+    <string name="consent_signed_at">Assinado em: %1$s (%2$s)</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">ScreenPorter Companion</string>
+    <string name="notification_channel_desc">Notificação persistente de ligação ativa</string>
+    <string name="notification_title">ScreenPorter ligado</string>
+    <string name="notification_text">A partilhar ecrã + a monitorizar com consentimento</string>
+    <string name="notification_text_location">A partilhar localização</string>
+    <string name="notification_text_no_capture">A aguardar autorização de ecrã</string>
+    <string name="notification_listener_label">ScreenPorter — Detetor de risco em notificações</string>
+
+    <!-- Accessibility -->
+    <string name="accessibility_service_label">ScreenPorter — Controlo Remoto + Monitorização</string>
+    <string name="accessibility_service_description">Permite ao ScreenPorter tocar, deslizar e tirar screenshots do ecrã, mediante consentimento explícito do dono do dispositivo. A app é sempre visível (ícone + notificação) e não registra teclas, não grava chamadas nem interceta mensagens. Também deteta sinais de risco em notificações de apps de mensagem (cyberbullying, drogas, automutilação, predador) — apenas envia flag + categoria, sem expor o conteúdo das conversas.</string>
+
+    <!-- Toasts -->
+    <string name="toast_login_ok">Sessão iniciada</string>
+    <string name="toast_login_fail">Falha no login — verifique servidor/credenciais</string>
+    <string name="toast_connected">Ligado ao servidor</string>
+    <string name="toast_disconnected">Desligado</string>
+    <string name="toast_missing_permissions">Faltam permissões</string>
+    <string name="toast_screenshot_permission">Acesso a ecrã concedido</string>
+    <string name="toast_overlay_permission">Conceda a permissão de "desenhar sobre outras apps" para o botão SOS</string>
+
+    <!-- Capture modes -->
+    <string name="mode_video">VÍDEO</string>
+    <string name="mode_screen">ECRÃ</string>
+    <string name="mode_control">CONTROLO</string>
+    <string name="mode_unknown">—</string>
+
+    <!-- About / footer -->
+    <string name="footer_consent">Operação aberta e consentida — a app é sempre visível.</string>
+    <string name="footer_version">ScreenPorter Companion v%1$s</string>
+</resources>

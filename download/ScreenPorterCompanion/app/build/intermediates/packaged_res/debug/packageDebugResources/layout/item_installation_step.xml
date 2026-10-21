@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="@dimen/spacing_md">
+
+    <!-- Step indicator -->
+    <TextView
+        android:id="@+id/textStepNumber"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:background="@drawable/bg_step_indicator"
+        android:gravity="center"
+        android:text="1"
+        android:textColor="@color/white"
+        android:textStyle="bold"
+        android:textSize="@dimen/text_body" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/spacing_md"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/textStepTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/ScreenPorter.TextAppearance.Body"
+            android:textColor="@color/brand_text_primary"
+            android:textStyle="bold"
+            tools:text="Passo" />
+    </LinearLayout>
+</LinearLayout>

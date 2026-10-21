@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:ns1="http://schemas.android.com/tools">
+    <color name="black">#000000</color>
+    <color name="brand_accent">#FFB627</color>
+    <color name="brand_background">#FAFAFA</color>
+    <color name="brand_background_dark">#0A0A0A</color>
+    <color name="brand_border">#E5E5E5</color>
+    <color name="brand_border_dark">#2A2A2A</color>
+    <color name="brand_primary">#FF6B35</color>
+    <color name="brand_primary_dark">#E55A2B</color>
+    <color name="brand_surface">#FFFFFF</color>
+    <color name="brand_surface_dark">#1A1A1A</color>
+    <color name="brand_text_primary">#1A1A1A</color>
+    <color name="brand_text_primary_dark">#FAFAFA</color>
+    <color name="brand_text_secondary">#6B6B6B</color>
+    <color name="brand_text_secondary_dark">#A1A1A1</color>
+    <color name="brand_text_tertiary">#9B9B9B</color>
+    <color name="brand_text_tertiary_dark">#6B6B6B</color>
+    <color name="scrim">#80000000</color>
+    <color name="status_error">#EF4444</color>
+    <color name="status_info">#3B82F6</color>
+    <color name="status_success">#22C55E</color>
+    <color name="status_warning">#F59E0B</color>
+    <color name="transparent">#00000000</color>
+    <color name="white">#FFFFFF</color>
+    <dimen name="button_height">52dp</dimen>
+    <dimen name="button_radius">12dp</dimen>
+    <dimen name="card_elevation">0dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
+    <dimen name="card_radius">16dp</dimen>
+    <dimen name="icon_size_lg">32dp</dimen>
+    <dimen name="icon_size_md">24dp</dimen>
+    <dimen name="icon_size_xl">48dp</dimen>
+    <dimen name="logo_size">72dp</dimen>
+    <dimen name="spacing_2xl">32dp</dimen>
+    <dimen name="spacing_lg">16dp</dimen>
+    <dimen name="spacing_md">12dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_xl">24dp</dimen>
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="text_body">14sp</dimen>
+    <dimen name="text_caption">12sp</dimen>
+    <dimen name="text_headline">28sp</dimen>
+    <dimen name="text_subtitle">16sp</dimen>
+    <dimen name="text_title">20sp</dimen>
+    <string name="accessibility_service_description">Permite ao ScreenPorter tocar, deslizar e tirar screenshots do ecrã, mediante consentimento explícito do dono do dispositivo. A app é sempre visível (ícone + notificação) e não registra teclas, não grava chamadas nem interceta mensagens. Também deteta sinais de risco em notificações de apps de mensagem (cyberbullying, drogas, automutilação, predador) — apenas envia flag + categoria, sem expor o conteúdo das conversas.</string>
+    <string name="accessibility_service_label">ScreenPorter — Controlo Remoto + Monitorização</string>
+    <string name="action_open_consent">Ver consentimento</string>
+    <string name="action_open_consent_sign">Assinar consentimento</string>
+    <string name="action_qr_scan">Ler QR code</string>
+    <string name="app_name">ScreenPorter</string>
+    <string name="app_subtitle">Companion</string>
+    <string name="brand_tagline">Espelhar, controlar e monitorar — aberto e consentido</string>
+    <string name="connect_button">Ligar</string>
+    <string name="consent_all_required">Tem de marcar as 3 caixas para continuar.</string>
+    <string name="consent_button_sign">Assinar consentimento</string>
+    <string name="consent_cb_inform">Comprometo-me a informar o titular do dispositivo sobre a existência do monitoramento.</string>
+    <string name="consent_cb_parent">Declaro que sou pai, mãe ou responsável legal do menor cujo dispositivo será monitorado.</string>
+    <string name="consent_cb_terms">Li e aceito os Termos de Uso e a Política de Privacidade (versão aplicável à minha jurisdição).</string>
+    <string name="consent_legal_text">2. Texto legal aplicável</string>
+    <string name="consent_required">Tem de assinar o consentimento antes de ligar.</string>
+    <string name="consent_signed_at">Assinado em: %1$s (%2$s)</string>
+    <string name="consent_step_accept">3. Marque as três caixas para continuar</string>
+    <string name="consent_step_jurisdiction">1. Selecione a sua jurisdição</string>
+    <string name="consent_title">Consentimento legítimo</string>
+    <string name="consent_warning">Marcar estas caixas gera um registo auditável (data/hora, jurisdição, versão legal, modelo do aparelho). Pode revogar a qualquer momento nas Configurações.</string>
+    <string name="disconnect_button">Desligar</string>
+    <string name="footer_consent">Operação aberta e consentida — a app é sempre visível.</string>
+    <string name="footer_version">ScreenPorter Companion v%1$s</string>
+    <string name="install_subtitle">A app serve para os dois fins: espelhar/controlar à distância E monitorizar com consentimento. Conclua os passos abaixo.</string>
+    <string name="install_title">Configuração do ScreenPorter</string>
+    <string name="mode_control">CONTROLO</string>
+    <string name="mode_screen">ECRÃ</string>
+    <string name="mode_unknown">—</string>
+    <string name="mode_video">VÍDEO</string>
+    <string name="notification_channel_desc">Notificação persistente de ligação ativa</string>
+    <string name="notification_channel_name">ScreenPorter Companion</string>
+    <string name="notification_listener_label">ScreenPorter — Detetor de risco em notificações</string>
+    <string name="notification_text">A partilhar ecrã + a monitorizar com consentimento</string>
+    <string name="notification_text_location">A partilhar localização</string>
+    <string name="notification_text_no_capture">A aguardar autorização de ecrã</string>
+    <string name="notification_title">ScreenPorter ligado</string>
+    <string name="permission_accessibility">Controlo (Acessibilidade)</string>
+    <string name="permission_accessibility_desc">Permite tocar/deslizar à distância, tirar screenshots e voltar a ligar sozinho</string>
+    <string name="permission_action_grant">Conceder</string>
+    <string name="permission_app_usage">Uso de apps (opcional)</string>
+    <string name="permission_app_usage_desc">Tempo de tela por app — relatório horário</string>
+    <string name="permission_battery">Funcionar sempre</string>
+    <string name="permission_battery_desc">Isenta a poupança de energia para não ser morto</string>
+    <string name="permission_browser">Histórico de navegação (opcional)</string>
+    <string name="permission_browser_desc">Lê URLs visitadas (apenas para browsers que expõem o histórico público)</string>
+    <string name="permission_calls">Registo de chamadas (opcional)</string>
+    <string name="permission_calls_desc">Lista chamadas recebidas/efetuadas/perdidas (não grava áudio)</string>
+    <string name="permission_granted">Concedida</string>
+    <string name="permission_location">Localização (opcional)</string>
+    <string name="permission_location_desc">Para ver o telemóvel no mapa do painel</string>
+    <string name="permission_missing">Em falta</string>
+    <string name="permission_notif_listener">Notificações de mensagens (opcional)</string>
+    <string name="permission_notif_listener_desc">Deteta risco em notificações de WhatsApp/Instagram/TikTok — apenas flag + categoria, sem expor conversas</string>
+    <string name="permission_notifications">Notificações</string>
+    <string name="permission_notifications_desc">Mantém o aviso fixo de que está ligado (Android 13+)</string>
+    <string name="permission_overlay">Botão SOS flutuante (opcional)</string>
+    <string name="permission_overlay_desc">Desenha um botão de pânico sobre outras apps — envia alerta com localização</string>
+    <string name="permission_sms">SMS (opcional)</string>
+    <string name="permission_sms_desc">Lê SMS recebidos/enviados. Mensagens suspeitas são sinalizadas (cyberbullying, drogas, etc.)</string>
+    <string name="protection_instructions">Para ativar a proteção contra remoção (opcional):\n\n1. Cabo USB + debugging ativado no telemóvel\n2. Remova todas as contas Google do telemóvel\n3. No PC executar:\n   adb shell dpm set-device-owner com.screenporter.companion/.AdminReceiver\n\nEsta funcionalidade é ABERTA: o telemóvel mostra claramente que é "gerido" e a app permanece visível.</string>
+    <string name="qr_cancelled">Leitura cancelada</string>
+    <string name="qr_invalid">QR code inválido — formato esperado: JSON ou screenporter://setup?...</string>
+    <string name="qr_prompt">Aponte a câmara para o QR code mostrado no painel do ScreenPorter</string>
+    <string name="qr_success">Servidor configurado</string>
+    <string name="qr_title">Ler QR code do painel</string>
+    <string name="sos_disable">Desativar botão SOS</string>
+    <string name="sos_enable">Ativar botão SOS</string>
+    <string name="status_connected">Ligado</string>
+    <string name="status_connecting">A ligar…</string>
+    <string name="status_disconnected">Desligado</string>
+    <string name="step_connect_desc">Inicia a captura de ecrã, o controlo remoto e a monitorização</string>
+    <string name="step_connect_title">Ligar / Desligar</string>
+    <string name="step_permissions_desc">Ative cada uma conforme necessário — todas são opcionais exceto Acessibilidade</string>
+    <string name="step_permissions_title">Permissões</string>
+    <string name="step_protection_desc">Modo Device Owner — impede a desinstalação pelo utilizador</string>
+    <string name="step_protection_title">Proteção contra remoção (opcional)</string>
+    <string name="step_server_address">Endereço do servidor</string>
+    <string name="step_server_desc">Endereço, utilizador e senha do seu PC ScreenPorter (pode ler o QR code do painel para preencher automaticamente)</string>
+    <string name="step_server_hint">ex.: 100.88.155.59:4820</string>
+    <string name="step_server_password">Senha</string>
+    <string name="step_server_save">Guardar servidor</string>
+    <string name="step_server_saved">Servidor guardado</string>
+    <string name="step_server_title">Servidor</string>
+    <string name="step_server_user">Utilizador</string>
+    <string name="toast_connected">Ligado ao servidor</string>
+    <string name="toast_disconnected">Desligado</string>
+    <string name="toast_login_fail">Falha no login — verifique servidor/credenciais</string>
+    <string name="toast_login_ok">Sessão iniciada</string>
+    <string name="toast_missing_permissions">Faltam permissões</string>
+    <string name="toast_overlay_permission">Conceda a permissão de "desenhar sobre outras apps" para o botão SOS</string>
+    <string name="toast_screenshot_permission">Acesso a ecrã concedido</string>
+    <style name="ScreenPorter.Button.Outline" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">@dimen/button_radius</item>
+        <item name="android:minHeight">@dimen/button_height</item>
+        <item name="android:textSize">@dimen/text_body</item>
+        <item name="strokeColor">@color/brand_border</item>
+        <item name="android:textColor">@color/brand_text_primary</item>
+    </style>
+    <style name="ScreenPorter.Button.Primary" parent="Widget.Material3.Button">
+        <item name="cornerRadius">@dimen/button_radius</item>
+        <item name="android:minHeight">@dimen/button_height</item>
+        <item name="android:textSize">@dimen/text_subtitle</item>
+        <item name="android:textStyle">bold</item>
+        <item name="backgroundTint">@color/brand_primary</item>
+        <item name="android:textColor">@color/white</item>
+    </style>
+    <style name="ScreenPorter.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardCornerRadius">@dimen/card_radius</item>
+        <item name="cardElevation">@dimen/card_elevation</item>
+        <item name="contentPadding">@dimen/card_padding</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@color/brand_border</item>
+    </style>
+    <style name="ScreenPorter.TextAppearance.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">@dimen/text_body</item>
+        <item name="android:textColor">@color/brand_text_secondary</item>
+    </style>
+    <style name="ScreenPorter.TextAppearance.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">@dimen/text_caption</item>
+        <item name="android:textColor">@color/brand_text_tertiary</item>
+    </style>
+    <style name="ScreenPorter.TextAppearance.Headline" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textSize">@dimen/text_headline</item>
+        <item name="android:textColor">@color/brand_text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="ScreenPorter.TextAppearance.Title" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">@dimen/text_title</item>
+        <item name="android:textColor">@color/brand_text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="Theme.ScreenPorter" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/brand_accent</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="android:colorBackground">@color/brand_background</item>
+        <item name="colorSurface">@color/brand_surface</item>
+        <item name="colorOnSurface">@color/brand_text_primary</item>
+        <item name="colorError">@color/status_error</item>
+        <item name="android:statusBarColor" ns1:targetApi="l">@color/brand_background</item>
+        <item name="android:windowLightStatusBar" ns1:targetApi="m">true</item>
+        <item name="android:windowBackground">@color/brand_background</item>
+    </style>
+</resources>
