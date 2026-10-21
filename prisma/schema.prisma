@@ -1,0 +1,350 @@
+// ScreenPorter (Baqurix console) — Plataforma unificada de espelhamento, controlo
+// e monitoramento parental consentido. Merge de ScreenPorter + GuardianLink.
+// Schema v2.0 — multi-jurisdição (LGPD / GDPR / COPPA) + 4 vias de ligação.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  locale       String   @default("pt-BR") // pt-BR | en
+  jurisdiction String   @default("BR")    // BR | EU | US
+  role         String   @default("parent") // parent | admin
+  onboardingStep Int     @default(0) // 0=none, 1=jurisdiction, 2=consent, 3=child, 4=device, 5=done
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  children     Child[]
+  devices      Device[]
+  consentRecords ConsentRecord[]
+  auditLogs    AuditLog[]
+  sessions     Session[]
+  syncConfig   SyncConfig?
+  syncEvents   SyncEvent[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Child {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  birthDate DateTime
+  avatarColor String @default("#FF6B35")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  devices   Device[]
+
+  @@index([userId])
+}
+model Device {
+  id            String   @id @default(cuid())
+  childId       String?
+  userId        String
+  name          String   // ex: "iPhone da Sofia"
+  model         String   // ex: "Pixel 7"
+  osVersion     String   // ex: "Android 14"
+  agentVersion  String?
+  installCode   String   @unique // código de 6 dígitos usado no app Android
+  agentToken    String?  // token gerado após ativação
+  status        String   @default("pending") // pending | active | offline | revoked
+  consentGiven  Boolean  @default(false)
+  // ScreenPorter — tipo de ligação
+  connectionType String  @default("companion") // usb | wifi | tailscale | companion
+  // ScreenPorter — rede (para Wi-Fi / Tailscale)
+  ipAddress     String?
+  port          Int?
+  // ScreenPorter — resolução do ecrã (para mapeamento de coordenadas)
+  screenW       Int      @default(1080)
+  screenH       Int      @default(2400)
+  lastSeenAt    DateTime?
+  registeredAt  DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  child         Child?   @relation(fields: [childId], references: [id], onDelete: SetNull)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consentRecords ConsentRecord[]
+  locationEvents  LocationEvent[]
+  callEvents      CallEvent[]
+  smsEvents       SmsEvent[]
+  appUsageEvents  AppUsageEvent[]
+  browserEvents   BrowserEvent[]
+  socialAlerts    SocialAlert[]
+  sosEvents       SosEvent[]
+  installedApps   InstalledApp[]
+  screenSessions  ScreenSession[]
+  screenshots     Screenshot[]
+
+  @@index([userId])
+  @@index([childId])
+  @@index([installCode])
+  @@index([connectionType])
+}
+
+model ConsentRecord {
+  id           String   @id @default(cuid())
+  userId       String
+  deviceId     String?
+  consentType  String   // parent | child | device_owner | data_processing | marketing
+  jurisdiction String   // BR | EU | US
+  legalVersion String   // ex: "tos-1.0-lgpd"
+  accepted     Boolean  @default(false)
+  ipAddress    String?
+  userAgent    String?
+  signedText   String   // hash do texto aceito, para fins de auditoria
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device       Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+model LocationEvent {
+  id        String   @id @default(cuid())
+  deviceId  String
+  latitude  Float
+  longitude Float
+  accuracy  Float?   // em metros
+  speed     Float?   // em m/s
+  altitude  Float?
+  bearing   Float?
+  battery   Int?     // %
+  timestamp DateTime
+  createdAt DateTime @default(now())
+
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+}
+
+model CallEvent {
+  id          String   @id @default(cuid())
+  deviceId    String
+  phoneNumber String
+  contactName String?
+  direction   String   // incoming | outgoing | missed
+  duration    Int      // segundos (0 = não atendida)
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+}
+
+model SmsEvent {
+  id          String   @id @default(cuid())
+  deviceId    String
+  phoneNumber String
+  contactName String?
+  direction   String   // incoming | outgoing
+  body        String
+  flagged     Boolean  @default(false)
+  flagReason  String?  // cyberbullying | drugs | violence | adult | self_harm
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([flagged])
+}
+
+model AppUsageEvent {
+  id             String   @id @default(cuid())
+  deviceId       String
+  packageName    String
+  appName        String
+  foregroundMs   Int      // tempo em foreground neste período
+  dataUsageBytes Int?
+  timestamp      DateTime // início do período (geralmente hora cheia)
+  createdAt      DateTime @default(now())
+
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+}
+
+model BrowserEvent {
+  id         String   @id @default(cuid())
+  deviceId   String
+  url        String
+  title      String?
+  category   String?  // social | news | adult | games | education | shopping | other
+  blocked    Boolean  @default(false)
+  timestamp  DateTime
+  createdAt  DateTime @default(now())
+
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+}
+
+model SocialAlert {
+  id          String   @id @default(cuid())
+  deviceId    String
+  platform    String   // whatsapp | instagram | tiktok | snapchat | messenger
+  severity    String   // low | medium | high | critical
+  category    String   // cyberbullying | sexting | drugs | violence | self_harm | predator
+  snippet     String   // trecho redigido (sem expor conversa privada)
+  actionTaken String?  // notified | blocked | escalated
+  resolved    Boolean  @default(false)
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([resolved])
+}
+
+model SosEvent {
+  id          String   @id @default(cuid())
+  deviceId    String
+  latitude    Float?
+  longitude   Float?
+  accuracy    Float?
+  battery     Int?
+  trigger     String   // button | keyword | fall_detection
+  resolved    Boolean  @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?  // userId que marcou como resolvido
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([resolved])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String   // login | logout | onboarding_step | device_registered | consent_signed | data_viewed | settings_changed | device_revoked | screen_session_started | screen_session_stopped | screenshot_taken | remote_control | sync_broadcast | sync_config_changed | app_installed | app_opened | device_rebooted
+  target    String?  // id do recurso afetado
+  metadata  String?  // JSON serializado
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ============================================================
+// ScreenPorter — novos modelos
+// ============================================================
+
+// Apps instaladas num aparelho (consultadas periodicamente)
+model InstalledApp {
+  id          String   @id @default(cuid())
+  deviceId    String
+  packageName String   // ex: com.whatsapp
+  appName     String
+  versionName String?
+  versionCode Int?
+  systemApp   Boolean  @default(false)
+  firstSeenAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, packageName])
+  @@index([deviceId])
+}
+
+// Configuração de sincronização multi-dispositivo (1 por utilizador)
+model SyncConfig {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  mode         String   @default("adaptive") // rigid | adaptive | independent
+  toleranceMs  Int      @default(80)  // margem de desvio aceitável
+  marginMs     Int      @default(50)  // compensação de latência
+  elementBased Boolean  @default(true) // toque por elemento em vez de coordenada
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Sessões de espelhamento de ecrã (início/fim)
+model ScreenSession {
+  id         String   @id @default(cuid())
+  deviceId   String
+  userId     String
+  codec      String   @default("H264") // H264 (ADB scrcpy ou companion MediaCodec)
+  fps        Int      @default(30)
+  bitrate    Int      @default(2000000) // 2 Mbps
+  width      Int?
+  height     Int?
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+  status     String   @default("active") // active | ended | failed
+  framesReceived Int  @default(0)
+  bytesReceived  Int  @default(0)
+
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, startedAt])
+  @@index([status])
+}
+
+// Screenshots capturados do ecrã ao vivo
+model Screenshot {
+  id         String   @id @default(cuid())
+  deviceId   String
+  sessionId  String?
+  width      Int
+  height     Int
+  // Imagem PNG armazenada como base64 para simplicidade (em produção: storage URL)
+  dataUrl    String
+  takenAt    DateTime @default(now())
+
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, takenAt])
+}
+
+// Eventos de sincronização (cada comando broadcast para múltiplos aparelhos)
+model SyncEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  sourceDeviceId String?  // aparelho de origem (toque por elemento)
+  commandType String   // touch | key | text | back | home | recents | power | volume_up | volume_down
+  mode        String   // rigid | adaptive | independent
+  targetsJson String   // JSON array: [{ deviceId, success, deviationMs, error? }]
+  successCount Int     @default(0)
+  failCount   Int     @default(0)
+  avgDeviation Float   @default(0)
+  maxDeviation Float   @default(0)
+  timestamp   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp])
+}
