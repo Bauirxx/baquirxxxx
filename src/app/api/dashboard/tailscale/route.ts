@@ -9,36 +9,10 @@ const execAsync = promisify(exec)
 // Tenta ler o estado real do Tailscale chamando a CLI `tailscale status --json`.
 // Em ambientes sem Tailscale instalado, retorna { installed: false, connected: false, ... }.
 async function getRealTailscaleStatus(): Promise<TailscaleStatusDTO> {
-  // Verifica se o binário existe
-  let installed = false
-  try {
-    await execAsync('which tailscale', { timeout: 2000 })
-    installed = true
-  } catch {
-    return {
-      installed: false,
-      connected: false,
-      version: null,
-      tailnetName: null,
-      thisDeviceIp: null,
-      thisDeviceName: null,
-      peers: [],
-    }
-  }
-
-  if (!installed) {
-    return {
-      installed: false,
-      connected: false,
-      version: null,
-      tailnetName: null,
-      thisDeviceIp: null,
-      thisDeviceName: null,
-      peers: [],
-    }
-  }
-
-  // Chama `tailscale status --json` para obter estado real
+  // Corre `tailscale status --json` diretamente (cross-platform: Windows/Linux/macOS).
+  // Nota: o antigo pré-check `which tailscale` não existe no Windows e reportava
+  // incorretamente "não instalado". Aqui distinguimos "não instalado" (binário não
+  // encontrado) de "instalado mas com erro" (daemon em baixo, sem permissões, etc.).
   try {
     const { stdout } = await execAsync('tailscale status --json', { timeout: 5000 })
     const data = JSON.parse(stdout)
@@ -55,19 +29,27 @@ async function getRealTailscaleStatus(): Promise<TailscaleStatusDTO> {
         })
       }
     }
+    // Prefere o IPv4 (100.x) para o endereço do dispositivo.
+    const ips: string[] = Array.isArray(self.TailscaleIPs) ? self.TailscaleIPs : []
+    const ipv4 = ips.find((ip) => ip.includes('.')) ?? ips[0] ?? null
     return {
       installed: true,
       connected: data.BackendState === 'Running',
       version: data.Version ?? null,
       tailnetName: data.CurrentTailnet?.Name ?? null,
-      thisDeviceIp: Array.isArray(self.TailscaleIPs) ? self.TailscaleIPs[0] ?? null : null,
+      thisDeviceIp: ipv4,
       thisDeviceName: self.HostName ?? null,
       peers,
     }
-  } catch (err) {
-    // Tailscale instalado mas a CLI falhou (sem permissões, daemon down, etc.)
+  } catch (err: unknown) {
+    // ENOENT / "not recognized" / "command not found" → binário não existe.
+    const e = err as { code?: string; message?: string }
+    const msg = String(e?.message ?? '')
+    const notFound =
+      e?.code === 'ENOENT' ||
+      /not recognized|not found|no such file|command not found/i.test(msg)
     return {
-      installed: true,
+      installed: !notFound,
       connected: false,
       version: null,
       tailnetName: null,

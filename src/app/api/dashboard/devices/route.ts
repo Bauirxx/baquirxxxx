@@ -68,5 +68,21 @@ export async function POST(req: NextRequest) {
     await auditLog(user.id, 'devices_revoked_all', null, { count: result.count }, req)
     return json({ ok: true, count: result.count })
   }
+  if (body.action === 'pairTailscale') {
+    if (!body.deviceId || !body.ip) return errorResponse('deviceId and ip required', 400)
+    const device = await db.device.findUnique({ where: { id: body.deviceId } })
+    if (!device || device.userId !== user.id) return errorResponse('NOT_FOUND', 404)
+    await db.device.update({
+      where: { id: device.id },
+      data: {
+        connectionType: 'tailscale',
+        ipAddress: String(body.ip),
+        status: 'active',
+        lastSeenAt: new Date(),
+      },
+    })
+    await auditLog(user.id, 'device_paired_tailscale', device.id, { ip: String(body.ip), hostname: body.hostname ?? null }, req)
+    return json({ ok: true })
+  }
   return errorResponse('unknown action', 400)
 }
