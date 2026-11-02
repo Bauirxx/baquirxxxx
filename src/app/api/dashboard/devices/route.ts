@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { getUserOr401, json, errorResponse, parseJsonBody, auditLog } from '@/lib/api-helpers'
+import { getRelayStatus } from '@/lib/relay'
 import type { DeviceDTO, DeviceStatus } from '@/lib/types'
 
 export async function GET(_req: NextRequest) {
@@ -13,6 +14,12 @@ export async function GET(_req: NextRequest) {
     include: { child: true },
     orderBy: { registeredAt: 'desc' },
   })
+
+  // Presença em tempo real: online se o telemóvel está ligado ao relé (a transmitir)
+  // ou foi visto há menos de 2 min (dados recentes via /api/agent/ingest).
+  const relay = await getRelayStatus()
+  const userOnline = relay.online.some(o => o.userId === user.id)
+  const now = Date.now()
 
   const dtos: DeviceDTO[] = devices.map(d => ({
     id: d.id,
@@ -29,6 +36,7 @@ export async function GET(_req: NextRequest) {
     port: d.port,
     screenW: d.screenW,
     screenH: d.screenH,
+    online: userOnline || (d.lastSeenAt ? now - d.lastSeenAt.getTime() < 120000 : false),
   }))
 
   // Agrupado por tipo de ligação

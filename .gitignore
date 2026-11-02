@@ -53,3 +53,13 @@ next-env.d.ts
 
 # SQLite database (local only)
 db/
+
+# Android build artifacts (companion app) — não versionar
+download/ScreenPorterCompanion/.gradle/
+download/ScreenPorterCompanion/.kotlin/
+download/ScreenPorterCompanion/app/build/
+download/ScreenPorterCompanion/build/
+download/ScreenPorterCompanion/local.properties
+
+# node_modules em qualquer subpasta (mini-services têm deps recursivas)
+node_modules/

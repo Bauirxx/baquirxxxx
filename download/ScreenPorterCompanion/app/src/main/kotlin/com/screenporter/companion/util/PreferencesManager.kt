@@ -89,6 +89,11 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_SETUP_COMPLETED, false)
         set(value) = prefs.edit { putBoolean(KEY_SETUP_COMPLETED, value) }
 
+    // Último crash não-tratado (para diagnóstico: enviado ao relé na próxima ligação)
+    var lastCrash: String?
+        get() = prefs.getString(KEY_LAST_CRASH, null)
+        set(value) = prefs.edit { putString(KEY_LAST_CRASH, value) }
+
     companion object {
         private const val PREFS_NAME = "screenporter_prefs"
         private const val KEY_SERVER_ADDRESS = "server_address"
@@ -105,5 +110,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_CONSENT_LEGAL_VERSION = "consent_legal_version"
         private const val KEY_SOS_OVERLAY = "sos_overlay"
         private const val KEY_SETUP_COMPLETED = "setup_completed"
+        private const val KEY_LAST_CRASH = "last_crash"
     }
 }

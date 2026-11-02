@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { H264Decoder } from '@/lib/h264-decoder'
+import { DeviceSocket, type SessionMetaMsg } from '@/lib/device-socket'
 import { useI18n } from '@/lib/i18n/context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,6 +19,10 @@ import {
   Activity,
   Clock,
   Layers,
+  ArrowLeft,
+  Home,
+  SquareStack,
+  Power,
 } from 'lucide-react'
 import type { ScreenSessionDTO, DashboardView, DeviceDTO } from '@/lib/types'
 
@@ -26,14 +32,29 @@ interface ScreenMirrorViewProps {
 
 export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
   const { t, locale } = useI18n()
-  const { data: devicesData, loading: devicesLoading } = useFetch<{ devices: DeviceDTO[] }>('/api/dashboard/devices')
+  const { data: devicesData, loading: devicesLoading } = useFetch<{ devices: DeviceDTO[] }>('/api/dashboard/devices', { refreshMs: 10000 })
   const { data: sessionsData, loading: sessionsLoading, refresh: refreshSessions } = useFetch<{ sessions: ScreenSessionDTO[]; activeCount: number }>('/api/dashboard/screen-sessions', { refreshMs: 5000 })
 
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [touchIndicator, setTouchIndicator] = useState<{ x: number; y: number; key: number } | null>(null)
   const [recentScreenshots, setRecentScreenshots] = useState<Array<{ id: string; dataUrl: string; takenAt: string }>>([])
+  const [meta, setMeta] = useState<SessionMetaMsg | null>(null)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const mirrorBoxRef = useRef<HTMLDivElement>(null)
+  const socketRef = useRef<DeviceSocket | null>(null)
+  const decoderRef = useRef<H264Decoder | null>(null)
+  const metaRef = useRef<SessionMetaMsg | null>(null)
+  const streamingRef = useRef(false)
+  const [streaming, setStreaming] = useState(false)
+
+  // Estatísticas REAIS do stream ao vivo (sem mocks): contadas no navegador à
+  // medida que os pacotes H.264 chegam e são descodificados.
+  const framesRef = useRef(0)
+  const bytesRef = useRef(0)
+  const firstFrameAtRef = useRef<number | null>(null)
+  const lastTickRef = useRef<{ t: number; frames: number; bytes: number }>({ t: 0, frames: 0, bytes: 0 })
+  const [liveStats, setLiveStats] = useState<{ frames: number; fps: number; kbps: number; seconds: number }>({ frames: 0, fps: 0, kbps: 0, seconds: 0 })
 
   const devices = devicesData?.devices ?? []
   const activeDevices = devices.filter(d => d.status !== 'revoked')
@@ -42,9 +63,96 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
 
   useEffect(() => {
     if (!selectedDeviceId && activeDevices.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedDeviceId(activeDevices[0].id)
     }
   }, [activeDevices, selectedDeviceId])
+
+  // Espelho ao vivo — ligação + descodificador portados do totalcontrol
+  // (scrcpy/WebCodecs, formato comprovado). O relé re-embrulha o vídeo do
+  // telemóvel e guarda config + GOP, por isso o ecrã aparece logo.
+  useEffect(() => {
+    if (!selectedDeviceId) return
+    streamingRef.current = false
+    framesRef.current = 0
+    bytesRef.current = 0
+    firstFrameAtRef.current = null
+    lastTickRef.current = { t: 0, frames: 0, bytes: 0 }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStreaming(false)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMeta(null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLiveStats({ frames: 0, fps: 0, kbps: 0, seconds: 0 })
+
+    const canvas = canvasRef.current
+    if (!canvas || !H264Decoder.isSupported()) {
+      if (!H264Decoder.isSupported()) console.warn('[mirror] WebCodecs indisponível neste browser')
+      return
+    }
+
+    let decoder: H264Decoder | null = null
+    try {
+      decoder = new H264Decoder(canvas)
+      decoder.onError = (e) => console.error('[mirror]', e.message)
+      decoderRef.current = decoder
+    } catch (e) {
+      console.error('[mirror] decoder', e)
+      return
+    }
+
+    const socket = new DeviceSocket(selectedDeviceId)
+    socketRef.current = socket
+    socket.onMeta = (m) => { metaRef.current = m; setMeta(m) }
+    socket.onVideoPacket = (p) => {
+      const m = metaRef.current
+      if (!m || !decoderRef.current) return
+      decoderRef.current.handlePacket(p.isConfig, p.isKeyFrame, p.ptsMicros, p.payload, m.width, m.height)
+      // Estatísticas reais: só contamos pacotes de imagem (não o config SPS/PPS).
+      if (!p.isConfig) {
+        framesRef.current++
+        bytesRef.current += p.payload.byteLength
+        if (firstFrameAtRef.current == null) firstFrameAtRef.current = Date.now()
+      }
+      if (!streamingRef.current) {
+        streamingRef.current = true
+        setStreaming(true)
+      }
+    }
+    socket.onServerMessage = (msg) => {
+      if (msg.t === 'closed') {
+        streamingRef.current = false
+        setStreaming(false)
+      }
+    }
+    socket.onClose = () => {
+      streamingRef.current = false
+      setStreaming(false)
+    }
+
+    return () => {
+      socket.close()
+      decoderRef.current?.close()
+      decoderRef.current = null
+      socketRef.current = null
+      metaRef.current = null
+    }
+  }, [selectedDeviceId])
+
+  // Calcula FPS e bitrate REAIS a cada segundo, a partir dos pacotes recebidos.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const now = Date.now()
+      const prev = lastTickRef.current
+      const dt = prev.t ? (now - prev.t) / 1000 : 0
+      const fps = dt > 0 ? Math.round((framesRef.current - prev.frames) / dt) : 0
+      const kbps = dt > 0 ? Math.round(((bytesRef.current - prev.bytes) * 8) / dt / 1000) : 0
+      lastTickRef.current = { t: now, frames: framesRef.current, bytes: bytesRef.current }
+      const seconds = firstFrameAtRef.current ? Math.floor((now - firstFrameAtRef.current) / 1000) : 0
+      setLiveStats({ frames: framesRef.current, fps: Math.max(0, fps), kbps: Math.max(0, kbps), seconds })
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [])
 
   async function startSession() {
     if (!selectedDeviceId) {
@@ -103,24 +211,50 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
     }
   }
 
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (!activeSession || !canvasRef.current) return
-    const rect = canvasRef.current.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    const key = Date.now()
-    setTouchIndicator({ x, y, key })
-    setTimeout(() => setTouchIndicator(null), 1500)
-    // Envia comando de toque real ao aparelho
-    fetch('/api/dashboard/remote-control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deviceId: selectedDeviceId,
-        command: 'touch',
-        payload: { x: Math.round(x), y: Math.round(y) },
-      }),
-    })
+  // Envia um evento de toque (down/move/up) em coords de vídeo. O relé junta o
+  // down+up e decide toque vs arrasto/scroll, enviando o gesto real à app.
+  function sendTouch(action: 'down' | 'move' | 'up', e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+    const xr = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const yr = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    const m = metaRef.current
+    const w = m?.width ?? 1080
+    const h = m?.height ?? 2400
+    socketRef.current?.touch(action, 0, xr * w, yr * h, w, h, action === 'up' ? 0 : 1)
+    if (action === 'down') {
+      setTouchIndicator({ x: xr * 100, y: yr * 100, key: Date.now() })
+      setTimeout(() => setTouchIndicator(null), 800)
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId) } catch {}
+    sendTouch('down', e)
+  }
+  function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    sendTouch('up', e)
+  }
+
+  function nav(cmd: 'back' | 'home' | 'recents' | 'power') {
+    const s = socketRef.current
+    if (!s) return
+    if (cmd === 'back') s.back()
+    else if (cmd === 'home') s.home()
+    else if (cmd === 'recents') s.recents()
+    else if (cmd === 'power') s.power()
+  }
+
+  function toggleFullscreen() {
+    const el = mirrorBoxRef.current
+    if (!el) return
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      el.requestFullscreen().catch(() => {})
+    }
   }
 
   if (devicesLoading && !devicesData) {
@@ -156,7 +290,10 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
                       : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50'
                   }`}
                 >
-                  {d.name} · {t(`connection.${d.connectionType}`)}
+                  <span
+                    className={`inline-block h-1.5 w-1.5 rounded-full mr-1.5 align-middle ${d.online ? 'bg-green-500' : 'bg-muted-foreground/40'}`}
+                  />
+                  {d.name} · {t(`connection.${d.connectionType}`)} · {d.online ? t('devices.ts.online') : t('devices.status.offline')}
                 </button>
               ))}
             </div>
@@ -185,78 +322,112 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {activeSession ? (
-              <div className="relative bg-foreground/5 aspect-[9/19] max-w-[340px] mx-auto">
-                {/* Canvas fica aguardando o stream H.264 do agente Android.
-                    Em produção, o WebCodecs VideoDecoder desenharia os frames recebidos aqui. */}
-                <canvas
-                  ref={canvasRef}
-                  width={270}
-                  height={570}
-                  onClick={handleCanvasClick}
-                  className="w-full h-full block cursor-pointer"
-                />
-                {touchIndicator && (
-                  <div className="absolute top-2 right-2 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded">
-                    {t('screen.touch.indicator')}: {Math.round(touchIndicator.x)}%,{Math.round(touchIndicator.y)}%
+            <div
+              ref={mirrorBoxRef}
+              className="relative bg-black max-w-[340px] mx-auto"
+              style={{ aspectRatio: meta ? `${meta.width} / ${meta.height}` : '9 / 19' }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={270}
+                height={570}
+                onPointerDown={handlePointerDown}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                style={{ touchAction: 'none' }}
+                className="w-full h-full block cursor-pointer object-contain"
+              />
+              {!streaming && (
+                <div className="absolute inset-0 flex items-center justify-center bg-foreground/5">
+                  <div className="text-center px-4">
+                    <MonitorPlay className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                    <p className="text-sm text-muted-foreground mb-1">{t('screen.empty.body')}</p>
+                    <p className="text-xs text-muted-foreground/70 leading-relaxed">
+                      No telemóvel: abre a app → <b>Ligar</b> → permite a captura de ecrã.
+                    </p>
+                    {!activeSession && (
+                      <Button size="sm" onClick={startSession} className="gap-1.5 mt-3">
+                        <Play className="h-3.5 w-3.5" />
+                        {t('screen.start')}
+                      </Button>
+                    )}
                   </div>
-                )}
-                {touchIndicator && (
-                  <div
-                    className="absolute pointer-events-none"
-                    style={{
-                      left: `${touchIndicator.x}%`,
-                      top: `${touchIndicator.y}%`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                  >
-                    <div className="relative">
-                      <div className="absolute inset-0 rounded-full bg-primary/30 animate-ping" style={{ width: 24, height: 24 }} />
-                      <div className="relative rounded-full bg-primary border-2 border-background" style={{ width: 18, height: 18 }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="aspect-[9/19] max-w-[340px] mx-auto flex items-center justify-center bg-foreground/5">
-                <div className="text-center">
-                  <MonitorPlay className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                  <p className="text-sm text-muted-foreground mb-3">{t('screen.empty.body')}</p>
-                  <Button size="sm" onClick={startSession} className="gap-1.5">
-                    <Play className="h-3.5 w-3.5" />
-                    {t('screen.start')}
-                  </Button>
                 </div>
-              </div>
-            )}
+              )}
+              {touchIndicator && (
+                <div className="absolute top-2 right-2 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded">
+                  {t('screen.touch.indicator')}: {Math.round(touchIndicator.x)}%,{Math.round(touchIndicator.y)}%
+                </div>
+              )}
+              {touchIndicator && (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${touchIndicator.x}%`,
+                    top: `${touchIndicator.y}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-full bg-primary/30 animate-ping" style={{ width: 24, height: 24 }} />
+                    <div className="relative rounded-full bg-primary border-2 border-background" style={{ width: 18, height: 18 }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Barra de controlo: navegação do sistema + ecrã inteiro (como no totalcontrol) */}
+            <div className="flex items-center justify-center gap-2 py-3 border-t border-border/40 mt-0">
+              <Button size="sm" variant="outline" onClick={() => nav('back')} title={t('control.back')} className="gap-1.5">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => nav('home')} title={t('control.home')} className="gap-1.5">
+                <Home className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => nav('recents')} title={t('control.recents')} className="gap-1.5">
+                <SquareStack className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => nav('power')} title={t('control.power')} className="gap-1.5">
+                <Power className="h-4 w-4" />
+              </Button>
+              <div className="w-px h-5 bg-border/60 mx-1" />
+              <Button size="sm" variant="outline" onClick={toggleFullscreen} title={t('screen.fullscreen')} className="gap-1.5">
+                <Maximize2 className="h-4 w-4" />
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
         {/* Side panel — session info + actions + screenshots */}
         <div className="space-y-4">
-          {activeSession && (
+          {(streaming || activeSession) && (
             <Card className="border-border/60 shadow-none">
               <CardHeader className="pb-3">
-                <CardTitle className="font-serif-display text-sm">{t('screen.session.active')}</CardTitle>
+                <CardTitle className="font-serif-display text-sm flex items-center gap-2">
+                  <span className={`inline-block h-2 w-2 rounded-full ${streaming ? 'bg-red-500' : 'bg-muted-foreground/40'}`} />
+                  {t('screen.session.active')}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-xs">
-                <Meta icon={Activity} label={t('screen.session.fps')} value={`${activeSession.fps}`} />
-                <Meta icon={Layers} label={t('screen.session.bitrate')} value={`${(activeSession.bitrate / 1_000_000).toFixed(1)} Mbps`} />
-                <Meta icon={MonitorPlay} label={t('screen.session.codec')} value={activeSession.codec} />
-                <Meta icon={Activity} label={t('screen.session.frames')} value={activeSession.framesReceived.toLocaleString()} />
-                <Meta icon={Clock} label={t('screen.session.duration')} value={`${Math.max(1, Math.floor((Date.now() - new Date(activeSession.startedAt).getTime()) / 60000))} min`} />
-                <Meta icon={MonitorPlay} label={t('screen.session.resolution')} value={`${activeSession.width ?? '—'}×${activeSession.height ?? '—'}`} />
+                <Meta icon={Activity} label={t('screen.session.fps')} value={streaming ? `${liveStats.fps}` : '—'} />
+                <Meta icon={Layers} label={t('screen.session.bitrate')} value={streaming ? (liveStats.kbps >= 1000 ? `${(liveStats.kbps / 1000).toFixed(1)} Mbps` : `${liveStats.kbps} kbps`) : '—'} />
+                <Meta icon={MonitorPlay} label={t('screen.session.codec')} value={(meta?.codec ?? 'H264').toUpperCase()} />
+                <Meta icon={Activity} label={t('screen.session.frames')} value={liveStats.frames.toLocaleString()} />
+                <Meta icon={Clock} label={t('screen.session.duration')} value={formatDuration(liveStats.seconds)} />
+                <Meta icon={MonitorPlay} label={t('screen.session.resolution')} value={meta ? `${meta.width}×${meta.height}` : '—'} />
                 <div className="flex gap-2 pt-3">
-                  <Button size="sm" variant="outline" onClick={takeScreenshot} className="gap-1.5 flex-1">
+                  <Button size="sm" variant="outline" onClick={takeScreenshot} disabled={!streaming} className="gap-1.5 flex-1">
                     <Camera className="h-3 w-3" />
                     {t('screen.screenshot')}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => toast.success(t('screen.fullscreen'))} className="gap-1.5">
+                  <Button size="sm" variant="outline" onClick={toggleFullscreen} className="gap-1.5">
                     <Maximize2 className="h-3 w-3" />
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={stopSession} className="gap-1.5">
-                    <Square className="h-3 w-3" />
-                  </Button>
+                  {activeSession && (
+                    <Button size="sm" variant="destructive" onClick={stopSession} className="gap-1.5">
+                      <Square className="h-3 w-3" />
+                    </Button>
+                  )}
                 </div>
                 <div className="text-[10px] text-muted-foreground/70 pt-2 border-t border-border/40 mt-2">
                   {t('screen.tip.touch')}
@@ -289,6 +460,17 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
       </div>
     </div>
   )
+}
+
+function formatDuration(totalSeconds: number): string {
+  const s = Math.max(0, totalSeconds)
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  if (m >= 60) {
+    const h = Math.floor(m / 60)
+    return `${h}h ${m % 60}m`
+  }
+  return `${m}:${String(sec).padStart(2, '0')}`
 }
 
 function Meta({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {

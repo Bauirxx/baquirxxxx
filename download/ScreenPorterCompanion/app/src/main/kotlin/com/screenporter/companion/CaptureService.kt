@@ -8,13 +8,17 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
+import android.content.pm.ServiceInfo
 import android.graphics.SurfaceTexture
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
@@ -25,11 +29,13 @@ import com.screenporter.companion.monitoring.AlertDetector
 import com.screenporter.companion.monitoring.AppUsageReporter
 import com.screenporter.companion.monitoring.BrowserHistoryReporter
 import com.screenporter.companion.monitoring.CallLogReporter
+import com.screenporter.companion.monitoring.InstalledAppsReporter
 import com.screenporter.companion.monitoring.SmsReporter
 import com.screenporter.companion.network.ApiClient
 import com.screenporter.companion.network.WsMessage
 import com.screenporter.companion.network.WebSocketClient
 import com.screenporter.companion.util.PreferencesManager
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,7 +79,14 @@ class CaptureService : Service() {
 
     enum class CaptureMode { NONE, VIDEO, SCREEN, CONTROL }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Apanha QUALQUER exceção não-tratada das corrotinas do serviço. Sem isto,
+    // um erro num reporter/arranque propaga-se e o Android mata o processo —
+    // cortando o WebSocket de vídeo (code 1006, 0 frames). (robustez do totalcontrol)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.e(TAG, "corrotina falhou (ignorado, nao derruba o processo)", e)
+        }
+    )
     private lateinit var prefs: PreferencesManager
     private lateinit var api: ApiClient
     private lateinit var ws: WebSocketClient
@@ -82,6 +95,7 @@ class CaptureService : Service() {
     private var smsReporter: SmsReporter? = null
     private var appUsageReporter: AppUsageReporter? = null
     private var browserHistoryReporter: BrowserHistoryReporter? = null
+    private var installedAppsReporter: InstalledAppsReporter? = null
     private val alertDetector = AlertDetector()
 
     private var projection: MediaProjection? = null
@@ -89,6 +103,7 @@ class CaptureService : Service() {
     private var surfaceTexture: SurfaceTexture? = null
     private var encoderSurface: Surface? = null
     private var videoEncoder: VideoEncoder? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -132,7 +147,14 @@ class CaptureService : Service() {
             ACTION_START, null -> {
                 val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
                 val resultData: Intent? = intent?.getParcelableExtra(EXTRA_RESULT_DATA)
-                startForegroundWithNotification()
+                // Só pedimos o tipo mediaProjection ao arrancar em primeiro plano
+                // SE houver mesmo autorização de vídeo agora. Num reinício do
+                // serviço (intent nulo) não há — e pedir mediaProjection sem a
+                // projeção ativa rebenta no Android 14+ (SecurityException), o que
+                // matava o serviço e o tornava não-persistente.
+                val hasVideo = resultCode == Activity.RESULT_OK && resultData != null
+                startForegroundWithNotification(hasVideo)
+                acquireWakeLock()
                 startCapture(resultCode, resultData)
             }
         }
@@ -197,6 +219,10 @@ class CaptureService : Service() {
                 browserHistoryReporter?.start()
             }
 
+            // Lista de apps instaladas (não requer permissão especial — QUERY_ALL_PACKAGES)
+            installedAppsReporter = InstalledAppsReporter(this@CaptureService, prefs, api)
+            installedAppsReporter?.start()
+
             prefs.isConnected = true
             prefs.hasVideoAuth = canUseVideo
             updateNotification(currentMode, true)
@@ -210,17 +236,33 @@ class CaptureService : Service() {
         try {
             val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val proj = mpm.getMediaProjection(resultCode, data)
-            val w = WebSocketClient.screenWidth
-            val h = WebSocketClient.screenHeight
-            val surfaceTexture = SurfaceTexture(0).apply {
-                setDefaultBufferSize(w, h)
-            }
-            val encoderSurface = Surface(surfaceTexture)
-            // Start encoder with the input surface
+
+            // CRÍTICO (Android 14+): o callback do MediaProjection TEM de ser
+            // registado ANTES de createVirtualDisplay, senão este lança
+            // IllegalStateException ("Must register a callback before starting
+            // capture") — era isto que caía no catch e ia para ECRÃ = 0 frames.
+            // Usamos o Looper principal porque isto corre numa coroutine IO.
+            // (igual ao totalcontrol)
+            proj.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.w(TAG, "MediaProjection stopped — falling back to ECRÃ")
+                    stopVideoMode()
+                    if (currentMode == CaptureMode.VIDEO) startScreenMode()
+                }
+            }, Handler(Looper.getMainLooper()))
+
+            // Reduz o lado maior para ~900 px (banda do relay Tailscale/dados).
+            val (w, h) = scaledVideoSize(WebSocketClient.screenWidth, WebSocketClient.screenHeight)
+            // A app reporta no 'hello' o tamanho do VÍDEO; o controlo é
+            // normalizado (0..1), por isso continua certo.
+            WebSocketClient.screenWidth = w
+            WebSocketClient.screenHeight = h
+            // O codificador cria a SUA superfície de entrada; é ESSA que o
+            // VirtualDisplay alimenta (espelha o ecrã real para dentro do codec).
             videoEncoder = VideoEncoder(w, h) { frame ->
                 ws.sendBinaryFrame(frame.payload, frame.isKeyframe, frame.isConfig, frame.timestampUs)
             }
-            videoEncoder?.start(encoderSurface)
+            val encoderSurface = videoEncoder!!.start()
 
             val virtualDisplay = proj.createVirtualDisplay(
                 "ScreenPorter", w, h, resources.displayMetrics.densityDpi,
@@ -228,17 +270,7 @@ class CaptureService : Service() {
             )
             this.projection = proj
             this.virtualDisplay = virtualDisplay
-            this.surfaceTexture = surfaceTexture
             this.encoderSurface = encoderSurface
-
-            // If projection is revoked, fall back to SCREEN mode
-            proj.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    Log.w(TAG, "MediaProjection stopped — falling back to ECRÃ")
-                    stopVideoMode()
-                    if (currentMode == CaptureMode.VIDEO) startScreenMode()
-                }
-            }, null)
 
             currentMode = CaptureMode.VIDEO
             Log.i(TAG, "Started in VÍDEO mode (${w}x${h})")
@@ -284,6 +316,44 @@ class CaptureService : Service() {
         Log.i(TAG, "Started in CONTROLO mode (no capture)")
     }
 
+    /**
+     * WakeLock parcial: mantém o CPU (e a thread de rede) vivos quando o ecrã se
+     * desliga / o aparelho entra em Doze. Sem isto, a ligação caía sozinha após
+     * alguns minutos (code 1006) com o telemóvel no bolso. Para ser mesmo
+     * persistente é preciso TAMBÉM isentar a app da otimização de bateria.
+     */
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ScreenPorter::captura").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.i(TAG, "WakeLock adquirido")
+        } catch (e: Exception) {
+            Log.w(TAG, "Falha a adquirir WakeLock", e)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
+        wakeLock = null
+    }
+
+    /**
+     * Reduz o lado maior para ~900 px, preservando a proporção e mantendo as
+     * dimensões pares (exigência do H.264). Alivia muito a banda e os picos dos
+     * keyframes no acesso remoto. (igual ao totalcontrol)
+     */
+    private fun scaledVideoSize(w: Int, h: Int): Pair<Int, Int> {
+        if (w <= 0 || h <= 0) return Pair(720, 1600)
+        val maior = maxOf(w, h)
+        val escala = if (maior > 900) 900.0 / maior else 1.0
+        fun par(v: Int) = (v - (v % 2)).coerceAtLeast(2)
+        return Pair(par((w * escala).toInt()), par((h * escala).toInt()))
+    }
+
     private fun stopVideoMode() {
         try { virtualDisplay?.release() } catch (_: Exception) {}
         try { videoEncoder?.stop() } catch (_: Exception) {}
@@ -310,6 +380,9 @@ class CaptureService : Service() {
         appUsageReporter = null
         browserHistoryReporter?.stop()
         browserHistoryReporter = null
+        installedAppsReporter?.stop()
+        installedAppsReporter = null
+        releaseWakeLock()
         currentMode = CaptureMode.NONE
         prefs.isConnected = false
     }
@@ -324,10 +397,33 @@ class CaptureService : Service() {
 
     // --- Notification management ---
 
-    private fun startForegroundWithNotification() {
+    private fun startForegroundWithNotification(hasVideo: Boolean) {
         ControlAccessibilityService.ensureChannel(this)
         val notif = buildNotification(currentMode, prefs.isConnected)
-        startForeground(NOTIF_ID, notif)
+        // Android 14+ (API 34): o tipo TEM de ser explícito e só o que é válido
+        // AGORA. mediaProjection exige a projeção ativa (autorização de vídeo);
+        // sem ela usamos specialUse. (igual ao totalcontrol)
+        if (Build.VERSION.SDK_INT >= 34) {
+            var tipo = if (hasVideo) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                       else ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            if (com.screenporter.companion.util.PermissionState.isLocationGranted(this)) {
+                tipo = tipo or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            try {
+                startForeground(NOTIF_ID, notif, tipo)
+            } catch (e: Exception) {
+                // Se mediaProjection falhar (appop ainda não pronto), não morre:
+                // arranca como specialUse para o serviço continuar vivo (controlo).
+                Log.e(TAG, "startForeground(tipo=$tipo) falhou — a usar specialUse", e)
+                var fb = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                if (com.screenporter.companion.util.PermissionState.isLocationGranted(this)) {
+                    fb = fb or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
+                try { startForeground(NOTIF_ID, notif, fb) } catch (_: Exception) {}
+            }
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
     }
 
     private fun updateNotification(mode: CaptureMode, connected: Boolean) {

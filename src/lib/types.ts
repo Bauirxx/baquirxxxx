@@ -43,6 +43,7 @@ export interface DeviceDTO {
   port: number | null
   screenW: number
   screenH: number
+  online: boolean
 }
 
 export interface InstalledAppDTO {

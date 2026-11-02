@@ -6,15 +6,15 @@ let socket: Socket | null = null
 
 export function getRealtimeSocket(): Socket {
   if (socket) return socket
-  socket = io('/', {
+  // Liga diretamente ao serviço de tempo real (porta 3003), no mesmo host do painel
+  // (localhost em dev, ou o IP do Tailscale quando acedido pelo telemovel).
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  socket = io(`http://${host}:3003`, {
     path: '/',
     transports: ['polling', 'websocket'],
-    upgrade: false,
     reconnection: true,
     reconnectionDelay: 1500,
-    reconnectionAttempts: 10,
-    // Caddy encaminha ?XTransformPort para o serviço na porta 3003
-    query: { XTransformPort: '3003' },
+    reconnectionAttempts: 20,
   })
   return socket
 }

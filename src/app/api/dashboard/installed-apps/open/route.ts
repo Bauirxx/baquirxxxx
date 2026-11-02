@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { getUserOr401, json, errorResponse, auditLog, parseJsonBody } from '@/lib/api-helpers'
+import { sendToCompanion } from '@/lib/relay'
 
 const schema = z.object({
   deviceId: z.string(),
@@ -22,9 +23,9 @@ export async function POST(req: NextRequest) {
   const device = await db.device.findFirst({ where: { id: deviceId, userId: user.id } })
   if (!device) return errorResponse('DEVICE_NOT_FOUND', 404)
 
-  // Mock: simulamos que o comando foi enviado. Em produção, isto invocaria:
-  // - ADB: `adb shell monkey -p <packageName> 1`
-  // - Companion: WebSocket msg { type: 'open_app', packageName }
-  await auditLog(user.id, 'app_opened', deviceId, { packageName }, req)
-  return json({ ok: true, simulated: true })
+  // Envia o comando REAL "open_app" à app Companion via o relé — a app abre a
+  // aplicação pelo packageName (campo `text`, ver ControlAccessibilityService).
+  const delivered = await sendToCompanion(user.id, { command: 'open_app', text: packageName })
+  await auditLog(user.id, 'app_opened', deviceId, { packageName, delivered }, req)
+  return json({ ok: true, delivered })
 }

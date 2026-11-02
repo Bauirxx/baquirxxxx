@@ -60,6 +60,9 @@ sealed class WsMessage {
         val command: String,
         val x: Float? = null,
         val y: Float? = null,
+        // Fim do deslize (swipe/scroll) — coords normalizadas 0..1, como x/y.
+        val endX: Float? = null,
+        val endY: Float? = null,
         val duration: Long? = null,
         val text: String? = null,
         val key: Int? = null

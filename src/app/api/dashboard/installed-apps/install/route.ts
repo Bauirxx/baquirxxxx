@@ -24,14 +24,19 @@ export async function POST(req: NextRequest) {
     select: { id: true, name: true },
   })
 
-  // Mock: simulamos a instalação. Em produção, isto faria upload do APK e invocaria:
-  // - ADB: `adb install -r /path/to/app.apk`
-  // - Companion: upload via WebSocket
-  await auditLog(user.id, 'app_installed', null, {
-    apkName: apkName ?? 'unknown.apk',
+  // HONESTO: a instalação remota silenciosa de APK NÃO é suportada pela app sem
+  // Device Owner (configuração opcional via adb). Não fingimos sucesso.
+  await auditLog(user.id, 'app_install_attempt', null, {
+    apkName: apkName ?? null,
     deviceCount: devices.length,
     deviceNames: devices.map(d => d.name),
+    supported: false,
   }, req)
 
-  return json({ ok: true, count: devices.length, simulated: true })
+  return json({
+    ok: false,
+    supported: false,
+    count: devices.length,
+    message: 'Instalação remota de APK requer Device Owner (não configurado neste aparelho).',
+  })
 }

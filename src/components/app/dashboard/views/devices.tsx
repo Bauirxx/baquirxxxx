@@ -52,7 +52,7 @@ const STATUS_TONES: Record<string, string> = {
 export function DevicesView() {
   const { t, locale } = useI18n()
   const { data, loading, refresh } = useFetch<{ devices: DeviceDTO[]; byConnection: Record<string, DeviceDTO[]> }>('/api/dashboard/devices', {
-    refreshMs: 30000,
+    refreshMs: 10000,
   })
   const { data: tailscale, loading: tsLoading } = useFetch<TailscaleStatusDTO>('/api/dashboard/tailscale', { refreshMs: 60000 })
   const [revealedCode, setRevealedCode] = useState<string | null>(null)
@@ -117,13 +117,9 @@ export function DevicesView() {
     }
   }
 
-  const pairingValue = JSON.stringify({
-    v: 1,
-    type: 'screenporter-pair',
-    server: serverForPairing,
-    code: pairTarget?.installCode ?? '',
-    deviceId: pairTarget?.id ?? '',
-  })
+  // URL de instalação (download do APK). O telemóvel scaneia este QR com a câmara,
+  // ou escreve o endereço no browser → descarrega o APK → instala.
+  const installUrl = serverForPairing ? `${serverForPairing}/apk` : ''
 
   // Associa um peer da Tailnet ao dispositivo pendente (alternativa ao QR).
   async function associatePeer(peer: TailscaleStatusDTO['peers'][number]) {
@@ -203,7 +199,13 @@ export function DevicesView() {
                       return (
                         <TableRow key={d.id}>
                           <TableCell>
-                            <div className="font-medium">{d.name}</div>
+                            <div className="font-medium flex items-center gap-1.5">
+                              <span
+                                className={`inline-block h-2 w-2 rounded-full ${d.online ? 'bg-green-500' : 'bg-muted-foreground/40'}`}
+                                title={d.online ? t('devices.ts.online') : t('devices.status.offline')}
+                              />
+                              {d.name}
+                            </div>
                             <div className="text-xs text-muted-foreground">{d.model} · {d.osVersion}</div>
                           </TableCell>
                           <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
@@ -276,9 +278,9 @@ export function DevicesView() {
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row items-center gap-4">
             <div className="shrink-0 rounded-md bg-white p-3 border border-border/40">
-              {origin ? (
+              {installUrl ? (
                 <QRCodeSVG
-                  value={pairingValue}
+                  value={installUrl}
                   size={120}
                   level="M"
                   marginSize={2}
@@ -296,16 +298,17 @@ export function DevicesView() {
               <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
                 {t('devices.companion.qr.subtitle')}
               </p>
-              {origin && (
+              {installUrl && (
                 <p className="text-[11px] font-mono text-muted-foreground/70 mb-3 break-all">
-                  {serverForPairing}{pairTarget ? `  ·  ${pairTarget.installCode}` : ''}
-                  {tsIp ? '  · via Tailscale' : ''}
+                  {installUrl}{tsIp ? '  · via Tailscale' : ''}
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Download className="h-3 w-3" />
-                  {t('devices.companion.download')}
+                <Button asChild size="sm" variant="outline" className="gap-1.5">
+                  <a href="/api/download/companion" download>
+                    <Download className="h-3 w-3" />
+                    {t('devices.companion.download')}
+                  </a>
                 </Button>
                 <Button size="sm" variant="ghost" className="gap-1.5">
                   <Wifi className="h-3 w-3" />

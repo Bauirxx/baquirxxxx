@@ -7,11 +7,24 @@ import { broadcastEvent } from '@/lib/realtime-broadcast'
 async function authenticateAgent(req: NextRequest): Promise<{ device: any; user: any } | null> {
   const token = req.headers.get('x-agent-token')
   if (token) {
+    // 1) Token do agente (dispositivo já ativado)
     const device = await db.device.findFirst({
       where: { agentToken: token, status: { in: ['active', 'pending'] } },
       include: { user: true },
     })
     if (device) return { device, user: device.user }
+
+    // 2) Token de sessão: a app Companion autentica como utilizador via /api/auth/login
+    //    e envia esse token no X-Agent-Token. Mapeia sessão → utilizador → dispositivo.
+    const session = await db.session.findUnique({ where: { token }, include: { user: true } })
+    if (session && session.expiresAt > new Date()) {
+      const dev = await db.device.findFirst({
+        where: { userId: session.userId, status: { not: 'revoked' } },
+        orderBy: { registeredAt: 'desc' },
+        include: { user: true },
+      })
+      if (dev) return { device: dev, user: session.user }
+    }
   }
   // Alternativa: installCode (quando o agente ainda não foi ativado)
   const installCode = req.headers.get('x-install-code')

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { getUserOr401, json, errorResponse, auditLog, parseJsonBody } from '@/lib/api-helpers'
+import { sendToCompanion } from '@/lib/relay'
 import type { RemoteCommandType } from '@/lib/types'
 
 const schema = z.object({
@@ -25,18 +26,23 @@ export async function POST(req: NextRequest) {
   const device = await db.device.findFirst({ where: { id: deviceId, userId: user.id } })
   if (!device) return errorResponse('DEVICE_NOT_FOUND', 404)
 
-  // Mock: simula o envio. Em produção isto seria:
-  // - ADB: `adb shell input tap <x> <y>` ou `adb shell input keyevent <code>` ou `adb shell input text "..."`
-  // - Companion: WebSocket msg { type: 'touch'|'key'|'text'|'back'|..., payload }
-  await auditLog(user.id, 'remote_control', deviceId, { command, payload }, req)
+  // Envia o comando REAL à app Companion via o relé (WebSocket).
+  // A app (ControlAccessibilityService) espera x/y normalizados 0..1; o painel
+  // envia 0..100, por isso convertemos aqui.
+  const p = (payload ?? {}) as Record<string, number | undefined>
+  const message: Record<string, unknown> = { command }
+  if (p.x != null) message.x = p.x / 100
+  if (p.y != null) message.y = p.y / 100
+  if (p.duration != null) message.duration = p.duration
+  const delivered = await sendToCompanion(user.id, message)
 
-  // Marca aparelho como ativo
+  await auditLog(user.id, 'remote_control', deviceId, { command, payload, delivered }, req)
   await db.device.update({
     where: { id: deviceId },
-    data: { status: 'active', lastSeenAt: new Date() },
+    data: { lastSeenAt: new Date() },
   })
 
-  return json({ ok: true, simulated: true, command })
+  return json({ ok: true, delivered, command })
 }
 
 // GET — histórico de comandos deste utilizador (do audit log)

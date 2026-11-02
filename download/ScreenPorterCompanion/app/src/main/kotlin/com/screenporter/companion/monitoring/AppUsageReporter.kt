@@ -47,9 +47,11 @@ class AppUsageReporter(
         }
         reportingJob?.cancel()
         reportingJob = scope.launch {
+            // 1.ª vez: janela de 24 h para haver dados imediatos.
+            sendUsage(24 * 60 * 60 * 1000L)
             while (true) {
-                sendHourlyUsage()
                 delay(60 * 60 * 1000) // 1 hour
+                sendUsage(60 * 60 * 1000L)
             }
         }
     }
@@ -60,37 +62,47 @@ class AppUsageReporter(
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendHourlyUsage() {
+    private fun sendUsage(windowMs: Long) {
         if (!hasPermission()) return
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
-        val hourAgo = now - 60 * 60 * 1000
-        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, hourAgo, now)
-        if (stats.isNullOrEmpty()) return
+        val from = now - windowMs
+        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, from, now)
+        if (stats.isNullOrEmpty()) {
+            Log.w(TAG, "No usage stats for window ${windowMs}ms (permission on?)")
+            return
+        }
+
+        // UsageStatsManager pode devolver várias entradas por pacote; somamos.
+        val byPackage = HashMap<String, Long>()
+        for (s in stats) {
+            if (s.totalTimeInForeground <= 0) continue
+            byPackage[s.packageName] = (byPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
+        }
 
         val pm = context.packageManager
         val events = mutableListOf<Map<String, Any>>()
-        for (s in stats) {
-            if (s.totalTimeInForeground <= 0) continue
+        for ((packageName, foregroundMs) in byPackage) {
             val appName = try {
-                val info = pm.getApplicationInfo(s.packageName, 0)
+                val info = pm.getApplicationInfo(packageName, 0)
                 pm.getApplicationLabel(info).toString()
-            } catch (e: Exception) { s.packageName }
+            } catch (e: Exception) { packageName }
 
             events.add(mapOf(
                 "type" to "app",
                 "payload" to mapOf(
-                    "packageName" to s.packageName,
+                    "packageName" to packageName,
                     "appName" to appName,
-                    "foregroundMs" to s.totalTimeInForeground,
+                    "foregroundMs" to foregroundMs,
                     "dataUsageBytes" to 0, // not directly accessible without extra permissions
-                    "timestamp" to hourAgo
+                    "timestamp" to from
                 )
             ))
         }
         if (events.isNotEmpty()) {
             val ok = runBlocking { apiClient.ingest(events) }
             if (ok) Log.i(TAG, "Sent ${events.size} app usage events")
+            else Log.w(TAG, "Failed to send ${events.size} app usage events")
         }
     }
 

@@ -1,7 +1,8 @@
 'use client'
 
-// GuardianLink — Visualização minimalista de mapa (CSS grid + marcador)
-// Sem dependência de biblioteca de mapa externa.
+// GuardianLink — Mapa real OpenStreetMap (Leaflet + tiles OSM).
+// Leaflet é carregado por CDN (sem npm install) e inicializado no cliente via ref.
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MapPin, Battery, Gauge, Clock } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/context'
@@ -12,38 +13,116 @@ interface MapViewProps {
   height?: number
 }
 
+const LEAFLET_VERSION = '1.9.4'
+
+// Carrega o Leaflet (CSS + JS) uma única vez e resolve quando window.L existe.
+let leafletPromise: Promise<any> | null = null
+function loadLeaflet(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
+  const w = window as any
+  if (w.L) return Promise.resolve(w.L)
+  if (leafletPromise) return leafletPromise
+  leafletPromise = new Promise((resolve, reject) => {
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'
+      link.rel = 'stylesheet'
+      link.href = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`
+      document.head.appendChild(link)
+    }
+    const script = document.createElement('script')
+    script.src = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`
+    script.async = true
+    script.onload = () => resolve((window as any).L)
+    script.onerror = () => reject(new Error('leaflet load failed'))
+    document.body.appendChild(script)
+  })
+  return leafletPromise
+}
+
 export function MapView({ events, height = 360 }: MapViewProps) {
   const { t } = useI18n()
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<any>(null)
+  const overlayRef = useRef<any>(null) // layerGroup com marcador + trajetória
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  // Inicializa o mapa uma vez.
+  useEffect(() => {
+    let cancelled = false
+    loadLeaflet()
+      .then((L) => {
+        if (cancelled || !containerRef.current || mapRef.current) return
+        const map = L.map(containerRef.current, {
+          zoomControl: true,
+          attributionControl: true,
+        }).setView([0, 0], 2)
+        L.tileLayer(`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`, {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        }).addTo(map)
+        overlayRef.current = L.layerGroup().addTo(map)
+        mapRef.current = map
+        // o contentor pode ainda não ter o tamanho final
+        setTimeout(() => { try { map.invalidateSize() } catch {} }, 0)
+        if (!cancelled) setReady(true)
+      })
+      .catch(() => { if (!cancelled) setFailed(true) })
+    return () => {
+      cancelled = true
+      if (mapRef.current) {
+        try { mapRef.current.remove() } catch {}
+        mapRef.current = null
+        overlayRef.current = null
+      }
+    }
+  }, [])
+
+  // Desenha/atualiza marcador + trajetória sempre que os pontos mudam.
+  useEffect(() => {
+    if (!ready || !mapRef.current || !overlayRef.current) return
+    const w = window as any
+    const L = w.L
+    if (!L) return
+    const layer = overlayRef.current
+    layer.clearLayers()
+    if (!events.length) return
+
+    const accent = getComputedStyle(document.documentElement)
+      .getPropertyValue('--primary').trim() || '#2563eb'
+
+    // Trajetória (do mais antigo ao mais recente)
+    const history = events.slice(0, Math.min(events.length, 200)).reverse()
+    const latlngs = history.map(e => [e.latitude, e.longitude]) as [number, number][]
+    if (latlngs.length > 1) {
+      L.polyline(latlngs, { color: accent, weight: 3, opacity: 0.5 }).addTo(layer)
+    }
+
+    // Marcador da posição mais recente (ícone CSS — evita problemas de ícone por bundler)
+    const latest = events[0]
+    const markerIcon = L.divIcon({
+      className: '',
+      html: `<span style="display:block;width:16px;height:16px;border-radius:9999px;background:${accent};border:2px solid var(--background,#fff);box-shadow:0 0 0 6px color-mix(in srgb, ${accent} 25%, transparent);"></span>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    })
+    L.marker([latest.latitude, latest.longitude], { icon: markerIcon })
+      .addTo(layer)
+      .bindPopup(`${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}`)
+
+    // Enquadra todos os pontos
+    try {
+      if (latlngs.length > 1) {
+        mapRef.current.fitBounds(latlngs, { padding: [40, 40], maxZoom: 17 })
+      } else {
+        mapRef.current.setView([latest.latitude, latest.longitude], 16)
+      }
+    } catch {}
+  }, [events, ready])
+
   if (!events.length) return null
-
-  // Encontra bounding box dos pontos
-  const lats = events.map(e => e.latitude)
-  const lngs = events.map(e => e.longitude)
-  const minLat = Math.min(...lats)
-  const maxLat = Math.max(...lats)
-  const minLng = Math.min(...lngs)
-  const maxLng = Math.max(...lngs)
-  const latRange = Math.max(maxLat - minLat, 0.0005)
-  const lngRange = Math.max(maxLng - minLng, 0.0005)
-  // Adiciona padding de 10%
-  const padLat = latRange * 0.15
-  const padLng = lngRange * 0.15
-  const minLatPad = minLat - padLat
-  const minLngPad = minLng - padLng
-  const latRangePad = latRange + padLat * 2
-  const lngRangePad = lngRange + padLng * 2
-
-  // Projeta (lng, lat) -> (x%, y%)
-  const project = (lng: number, lat: number) => ({
-    x: ((lng - minLngPad) / lngRangePad) * 100,
-    y: 100 - ((lat - minLatPad) / latRangePad) * 100,
-  })
-
   const latest = events[0]
-  const history = events.slice(0, Math.min(events.length, 100)).reverse()
-  const latestPoint = project(latest.longitude, latest.latitude)
-  const pathPoints = history.map(e => project(e.longitude, e.latitude))
-  const pathStr = pathPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
 
   return (
     <Card className="border-border/60 shadow-none">
@@ -54,44 +133,13 @@ export function MapView({ events, height = 360 }: MapViewProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div
-          className="map-grid relative rounded-lg border border-border/40 overflow-hidden"
-          style={{ height: `${height}px` }}
-        >
-          {/* Trajetória */}
-          {pathPoints.length > 1 && (
-            <svg
-              className="absolute inset-0 w-full h-full"
-              preserveAspectRatio="none"
-              viewBox="0 0 100 100"
-            >
-              <path
-                d={pathStr}
-                stroke="var(--primary)"
-                strokeWidth="0.6"
-                fill="none"
-                strokeOpacity="0.4"
-                vectorEffect="non-scaling-stroke"
-              />
-              {pathPoints.slice(0, -1).map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r="0.5" fill="var(--primary)" fillOpacity="0.3" vectorEffect="non-scaling-stroke" />
-              ))}
-            </svg>
-          )}
-          {/* Marcador atual */}
-          <div
-            className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-300"
-            style={{ left: `${latestPoint.x}%`, top: `${latestPoint.y}%` }}
-          >
-            <div className="relative">
-              <div className="absolute inset-0 rounded-full bg-primary/30 animate-ping" style={{ width: 24, height: 24 }} />
-              <div className="relative rounded-full bg-primary border-2 border-background" style={{ width: 18, height: 18 }} />
+        <div className="relative rounded-lg border border-border/40 overflow-hidden" style={{ height: `${height}px` }}>
+          <div ref={containerRef} className="absolute inset-0 h-full w-full" style={{ zIndex: 0 }} />
+          {failed && (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted/30 text-xs text-muted-foreground">
+              {latest.latitude.toFixed(5)}, {latest.longitude.toFixed(5)}
             </div>
-          </div>
-          {/* Crosshair no centro */}
-          <div className="absolute top-2 left-2 text-[10px] font-mono text-muted-foreground bg-background/80 px-1.5 py-0.5 rounded">
-            {latest.latitude.toFixed(5)}, {latest.longitude.toFixed(5)}
-          </div>
+          )}
         </div>
 
         {/* Metadados */}

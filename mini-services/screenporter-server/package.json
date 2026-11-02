@@ -1,0 +1,13 @@
+{
+  "name": "screenporter-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ScreenPorter relay (porta 4820): proxy HTTP para o Next.js (login/ingest) + WebSocket de espelhamento (/ws/companion da app, /ws/devices/:id do browser).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

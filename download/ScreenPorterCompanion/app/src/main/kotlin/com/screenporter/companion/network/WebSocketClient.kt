@@ -31,8 +31,14 @@ class WebSocketClient(private val prefs: PreferencesManager) {
 
     var listener: Listener? = null
 
+    // readTimeout(0) = SEM limite de leitura. Um socket de vídeo pode ficar
+    // momentaneamente sem dados (modo controlo, ou pausa entre keyframes) e o
+    // limite por omissão do OkHttp (10 s) fechava a ligação à toa — era isso que
+    // provocava o ciclo ligar→hello→desligar e os 0 frames. O ping de 20 s mantém
+    // a ligação viva sem depender de leituras. (igual ao totalcontrol)
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .pingInterval(25, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     private var ws: WebSocket? = null
@@ -126,6 +132,16 @@ class WebSocketClient(private val prefs: PreferencesManager) {
         val h = WebSocketClient.screenHeight
         val hello = """{"t":"hello","id":"${prefs.deviceId}","model":"$model","width":$w,"height":$h,"osVersion":"Android ${android.os.Build.VERSION.RELEASE}","agentVersion":"0.1.0"}"""
         ws?.send(hello)
+
+        // Diagnóstico: se o processo rebentou na sessão anterior, reporta agora o
+        // stack ao relé (que o regista) e limpa.
+        val crash = prefs.lastCrash
+        if (!crash.isNullOrEmpty()) {
+            val esc = crash.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", " ").replace("\t", " ")
+            ws?.send("""{"t":"crash","stack":"$esc"}""")
+            prefs.lastCrash = null
+        }
     }
 
     fun sendText(json: String) {
@@ -136,6 +152,13 @@ class WebSocketClient(private val prefs: PreferencesManager) {
      * Send a binary H.264 frame with the 12-byte header (see class doc).
      */
     fun sendBinaryFrame(payload: ByteArray, isKeyframe: Boolean, isConfig: Boolean, timestampUs: Long) {
+        val socket = ws ?: return
+        // Contrapressão: se o buffer de envio está a encher (rede lenta — p.ex. um
+        // relay Tailscale com pouca banda), descarta quadros NORMAIS para não
+        // estourar e derrubar a ligação (code 1006). O config e os keyframes
+        // passam sempre, senão o vídeo nunca recupera. (igual ao totalcontrol)
+        if (!isConfig && !isKeyframe && socket.queueSize() > 512 * 1024) return
+
         val frame = ByteArray(12 + payload.size)
         var flags = 0
         if (isKeyframe) flags = flags or 0x01
@@ -149,7 +172,7 @@ class WebSocketClient(private val prefs: PreferencesManager) {
         frame[10] = 0
         frame[11] = 0
         System.arraycopy(payload, 0, frame, 12, payload.size)
-        ws?.send(ByteString.of(*frame))
+        socket.send(ByteString.of(*frame))
     }
 
     private fun handleTextMessage(text: String) {
@@ -163,6 +186,8 @@ class WebSocketClient(private val prefs: PreferencesManager) {
                     command = cmd,
                     x = if (json.has("x")) json.getDouble("x").toFloat() else null,
                     y = if (json.has("y")) json.getDouble("y").toFloat() else null,
+                    endX = if (json.has("endX")) json.getDouble("endX").toFloat() else null,
+                    endY = if (json.has("endY")) json.getDouble("endY").toFloat() else null,
                     duration = if (json.has("duration")) json.getLong("duration") else null,
                     text = if (json.has("text")) json.getString("text") else null,
                     key = if (json.has("key")) json.getInt("key") else null

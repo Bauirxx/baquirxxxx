@@ -148,9 +148,10 @@ class ControlAccessibilityService : AccessibilityService() {
                 }
             }
             "swipe" -> {
-                // Expects custom payload fields startX, startY, endX, endY
-                // (forward compatibility — for now degrade to tap)
-                if (cmd.x != null && cmd.y != null) {
+                // Deslize/scroll real de (x,y) → (endX,endY), coords normalizadas 0..1.
+                if (cmd.x != null && cmd.y != null && cmd.endX != null && cmd.endY != null) {
+                    swipe(cmd.x, cmd.y, cmd.endX, cmd.endY, cmd.duration ?: 250)
+                } else if (cmd.x != null && cmd.y != null) {
                     tapAt(cmd.x, cmd.y, cmd.duration ?: 50)
                 }
             }

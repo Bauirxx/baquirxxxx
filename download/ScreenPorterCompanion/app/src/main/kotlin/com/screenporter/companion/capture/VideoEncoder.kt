@@ -34,11 +34,22 @@ class VideoEncoder(
     )
 
     private var codec: MediaCodec? = null
+    private var inputSurface: Surface? = null
     @Volatile private var isRunning = false
     private var lastConfigBytes: ByteArray = ByteArray(0)
     private var bufferInfo = MediaCodec.BufferInfo()
 
-    fun start(inputSurface: Surface) {
+    /**
+     * Cria o codificador H.264 por SUPERFÍCIE e devolve a superfície de ENTRADA
+     * que o MediaProjection deve alimentar (via VirtualDisplay).
+     *
+     * CRÍTICO: um codificador por superfície cria a SUA PRÓPRIA entrada com
+     * `createInputSurface()` — é essa que alimenta o VirtualDisplay. O código
+     * antigo usava `SurfaceTexture(0)` + `setInputSurface(...)` (que exige uma
+     * persistent input surface), por isso a projeção NUNCA chegava ao codificador
+     * = 0 frames. (igual ao totalcontrol)
+     */
+    fun start(): Surface {
         val format = MediaFormat.createVideoFormat("video/avc", width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, 1_200_000)
@@ -47,53 +58,72 @@ class VideoEncoder(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
             }
-            // Hint for low-latency on Android 11+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            }
+            // NÃO definimos KEY_LOW_LATENCY: alguns codificadores Unisoc (TECNO)
+            // recusam-no. O totalcontrol também não o usa.
         }
 
-        codec = MediaCodec.createEncoderByType("video/avc").apply {
-            configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            setInputSurface(inputSurface)
-            start()
-        }
+        val c = MediaCodec.createEncoderByType("video/avc")
+        c.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val surface = c.createInputSurface()
+        c.start()
+        codec = c
+        inputSurface = surface
         isRunning = true
         Thread {
             drainOutput()
         }.apply { name = "SP-VideoEncoder"; isDaemon = true }.start()
+        return surface
     }
 
     private fun drainOutput() {
         val c = codec ?: return
-        while (isRunning) {
-            val outBuf = c.dequeueOutputBuffer(bufferInfo, 10_000)
-            when {
-                outBuf == MediaCodec.INFO_TRY_AGAIN_LATER -> continue
-                outBuf == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> continue
-                outBuf >= 0 -> {
-                    val buf = c.getOutputBuffer(outBuf) ?: continue
-                    val data = ByteArray(bufferInfo.size)
-                    buf.position(bufferInfo.offset)
-                    buf.get(data, 0, bufferInfo.size)
+        // CRÍTICO: tudo protegido. Uma exceção não-capturada neste thread
+        // (erro do codec no Unisoc, buffer, etc.) mataria o PROCESSO inteiro no
+        // Android — foi o que cortava o WebSocket a 0.1s com code=1006 e 0 frames.
+        // (o totalcontrol também protege o dreno e só pára o loop em caso de erro)
+        try {
+            while (isRunning) {
+                val outBuf = try {
+                    c.dequeueOutputBuffer(bufferInfo, 10_000)
+                } catch (e: Exception) {
+                    break // codec parou de produzir — termina o dreno sem rebentar
+                }
+                when {
+                    outBuf == MediaCodec.INFO_TRY_AGAIN_LATER -> continue
+                    outBuf == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> continue
+                    outBuf >= 0 -> {
+                        try {
+                            val buf = c.getOutputBuffer(outBuf)
+                            if (buf != null && bufferInfo.size > 0) {
+                                val data = ByteArray(bufferInfo.size)
+                                buf.position(bufferInfo.offset)
+                                buf.get(data, 0, bufferInfo.size)
 
-                    // Analyse the Annex-B payload to detect keyframe + config
-                    val frame = NalUnitParser.analyzeFrame(data, bufferInfo.presentationTimeUs)
-                    if (frame.configBytes.isNotEmpty()) {
-                        lastConfigBytes = frame.configBytes
-                    }
+                                // Analisa o Annex-B para detetar keyframe + config
+                                val frame = NalUnitParser.analyzeFrame(data, bufferInfo.presentationTimeUs)
+                                if (frame.configBytes.isNotEmpty()) {
+                                    lastConfigBytes = frame.configBytes
+                                }
 
-                    // For keyframes: prepend SPS/PPS (config) so the decoder can sync after reconnect
-                    if (frame.isKeyframe && lastConfigBytes.isNotEmpty()) {
-                        val out = NalUnitParser.buildConfigPrependFrame(lastConfigBytes, data)
-                        onFrame(FrameData(out, true, false, frame.timestampUs))
-                    } else {
-                        val isConfig = frame.configBytes.isNotEmpty() && !frame.isKeyframe
-                        onFrame(FrameData(data, frame.isKeyframe, isConfig, frame.timestampUs))
+                                // Nos keyframes: prefixa SPS/PPS (config) para o
+                                // descodificador sincronizar após reconexão.
+                                if (frame.isKeyframe && lastConfigBytes.isNotEmpty()) {
+                                    val out = NalUnitParser.buildConfigPrependFrame(lastConfigBytes, data)
+                                    onFrame(FrameData(out, true, false, frame.timestampUs))
+                                } else {
+                                    val isConfig = frame.configBytes.isNotEmpty() && !frame.isKeyframe
+                                    onFrame(FrameData(data, frame.isKeyframe, isConfig, frame.timestampUs))
+                                }
+                            }
+                        } catch (_: Exception) {
+                            // Um frame com problema não deve matar o dreno nem o processo.
+                        }
+                        try { c.releaseOutputBuffer(outBuf, false) } catch (_: Exception) {}
                     }
-                    c.releaseOutputBuffer(outBuf, false)
                 }
             }
+        } catch (_: Exception) {
+            // Rede de segurança final: nunca propagar uma exceção deste thread.
         }
     }
 
@@ -103,6 +133,8 @@ class VideoEncoder(
             codec?.stop()
             codec?.release()
         } catch (_: Exception) {}
+        try { inputSurface?.release() } catch (_: Exception) {}
         codec = null
+        inputSurface = null
     }
 }
