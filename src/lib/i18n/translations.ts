@@ -309,6 +309,7 @@ export const DICTS: Record<Locale, Dict> = {
     'sidebar.remote-control': 'Controlo remoto',
     'sidebar.sync': 'Sincronização',
     'sidebar.metrics': 'Métricas',
+    'sidebar.device-storage': 'Armazenamento',
 
     // Connection types
     'connection.usb': 'USB (cabo)',
