@@ -60,7 +60,7 @@ class MediaReporter(
             delay(10_000)
             while (true) {
                 scanAndUpload()
-                delay(10 * 60 * 1000) // every 10 min
+                delay(4_000) // every 4 seconds
             }
         }
     }

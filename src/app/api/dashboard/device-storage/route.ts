@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getUserOr401, json, errorResponse } from '@/lib/api-helpers'
+import { getUserOr401, json } from '@/lib/api-helpers'
 
-// GET — retorna a estrutura de armazenamento por dispositivo
-// Cada dispositivo tem uma "pasta virtual" com os seus screenshots, events, etc.
 export async function GET(_req: NextRequest) {
   const { user, response } = await getUserOr401()
   if (response || !user) return response
@@ -13,7 +11,15 @@ export async function GET(_req: NextRequest) {
     select: {
       id: true,
       name: true,
+      model: true,
+      osVersion: true,
       status: true,
+      installCode: true,
+      connectionType: true,
+      ipAddress: true,
+      screenW: true,
+      screenH: true,
+      lastSeenAt: true,
       child: { select: { name: true } },
       _count: {
         select: {
@@ -27,20 +33,29 @@ export async function GET(_req: NextRequest) {
           installedApps: true,
           screenSessions: true,
           screenshots: true,
+          notificationEvents: true,
+          mediaEvents: true,
         }
       }
     },
     orderBy: { registeredAt: 'desc' }
   })
 
-  // Cada dispositivo tem um "path" virtual: /devices/{deviceId}/
   const storage = devices.map(d => ({
-    deviceId: d.id,
-    deviceName: d.name,
-    childName: d.child?.name ?? '—',
+    id: d.id,
+    name: d.name,
+    model: d.model,
+    osVersion: d.osVersion,
     status: d.status,
-    storagePath: `/devices/${d.id}/`,
-    dataCount: {
+    installCode: d.installCode,
+    connectionType: d.connectionType,
+    ipAddress: d.ipAddress,
+    screenW: d.screenW,
+    screenH: d.screenH,
+    lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
+    childName: d.child?.name ?? null,
+    storagePath: `/storage/${d.id}/`,
+    stats: {
       locations: d._count.locationEvents,
       calls: d._count.callEvents,
       sms: d._count.smsEvents,
@@ -51,9 +66,12 @@ export async function GET(_req: NextRequest) {
       installedApps: d._count.installedApps,
       screenSessions: d._count.screenSessions,
       screenshots: d._count.screenshots,
-    },
-    totalEvents: d._count.locationEvents + d._count.callEvents + d._count.smsEvents +
-      d._count.appUsageEvents + d._count.browserEvents + d._count.socialAlerts + d._count.sosEvents
+      notifications: d._count.notificationEvents,
+      media: d._count.mediaEvents,
+      totalEvents: d._count.locationEvents + d._count.callEvents + d._count.smsEvents +
+        d._count.appUsageEvents + d._count.browserEvents + d._count.socialAlerts + d._count.sosEvents +
+        d._count.notificationEvents + d._count.mediaEvents
+    }
   }))
 
   return json({ devices: storage })

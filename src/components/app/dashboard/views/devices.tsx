@@ -1,46 +1,40 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { QRCodeSVG } from 'qrcode.react'
+import { useState } from 'react'
 import { useI18n } from '@/lib/i18n/context'
-import { Card, CardContent } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import {
   Smartphone,
-  Copy,
-  Check,
-  Ban,
-  Eye,
-  EyeOff,
   Usb,
   Wifi,
   Globe,
   QrCode,
   Download,
-  Link2,
+  Ban,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MapPin,
+  Phone,
+  MessageSquare,
+  Clock,
+  Image as ImageIcon,
+  AlertTriangle,
+  Siren,
+  MonitorPlay,
+  Activity,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import type { DeviceDTO, TailscaleStatusDTO } from '@/lib/types'
+import type { DeviceDTO, DashboardView } from '@/lib/types'
 
 const STATUS_TONES: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-300',
@@ -49,24 +43,52 @@ const STATUS_TONES: Record<string, string> = {
   revoked: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300',
 }
 
+const CONN_ICONS: Record<string, any> = {
+  usb: Usb,
+  wifi: Wifi,
+  tailscale: Globe,
+  companion: Smartphone,
+}
+
+const CONN_COLORS: Record<string, string> = {
+  usb: 'text-blue-600 dark:text-blue-400',
+  wifi: 'text-cyan-600 dark:text-cyan-400',
+  tailscale: 'text-purple-600 dark:text-purple-400',
+  companion: 'text-primary',
+}
+
+interface DeviceStats {
+  locations: number
+  calls: number
+  sms: number
+  appUsage: number
+  browser: number
+  alerts: number
+  sos: number
+  installedApps: number
+  screenSessions: number
+  screenshots: number
+  notifications: number
+  media: number
+  totalEvents: number
+}
+
+interface DeviceWithStats extends DeviceDTO {
+  stats: DeviceStats
+}
+
 export function DevicesView() {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ devices: DeviceDTO[]; byConnection: Record<string, DeviceDTO[]> }>('/api/dashboard/devices', {
-    refreshMs: 10000,
-  })
-  const { data: tailscale, loading: tsLoading } = useFetch<TailscaleStatusDTO>('/api/dashboard/tailscale', { refreshMs: 60000 })
+  const { data, loading, refresh } = useFetch<{ devices: DeviceWithStats[] }>(
+    '/api/dashboard/device-storage',
+    { refreshMs: 10000 }
+  )
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [revealedCode, setRevealedCode] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
-  const [origin, setOrigin] = useState('')
-  const [pairingPeer, setPairingPeer] = useState<string | null>(null)
-  const [pairedPeer, setPairedPeer] = useState<string | null>(null)
 
-  useEffect(() => {
-    // window só existe no cliente → lido após montar (evita hydration mismatch no QR).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOrigin(window.location.origin)
-  }, [])
+  const devices = data?.devices ?? []
 
   async function copyCode(code: string) {
     await navigator.clipboard.writeText(code)
@@ -85,68 +107,18 @@ export function DevicesView() {
       toast.success(t('toast.device.revoked'))
       setConfirmRevoke(null)
       refresh()
-    } else {
-      toast.error(t('toast.error'))
     }
   }
 
   if (loading && !data) {
     return (
       <div className="space-y-3">
-        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
       </div>
     )
   }
 
-  const devices = data?.devices ?? []
-  const byConnection = data?.byConnection ?? { usb: [], wifi: [], tailscale: [], companion: [] }
-
-  // Alvo do QR de emparelhamento: o 1.º dispositivo pendente, senão o mais recente.
-  const pairTarget = devices.find((d) => d.status === 'pending') ?? devices[0]
-
-  // Endereço do servidor no QR: preferir o IP do Tailscale (alcançável por
-  // dispositivos de teste sem endereço público); caso contrário, o origin atual.
-  const tsIp = tailscale?.thisDeviceIp ?? null
-  let serverForPairing = origin
-  if (tsIp && origin) {
-    try {
-      const u = new URL(origin)
-      serverForPairing = `http://${tsIp}${u.port ? `:${u.port}` : ''}`
-    } catch {
-      /* origin inválido — mantém o valor atual */
-    }
-  }
-
-  // URL de instalação (download do APK). O telemóvel scaneia este QR com a câmara,
-  // ou escreve o endereço no browser → descarrega o APK → instala.
-  const installUrl = serverForPairing ? `${serverForPairing}/apk` : ''
-
-  // Associa um peer da Tailnet ao dispositivo pendente (alternativa ao QR).
-  async function associatePeer(peer: TailscaleStatusDTO['peers'][number]) {
-    if (!pairTarget || !peer.ip) return
-    setPairingPeer(peer.ip)
-    try {
-      const res = await fetch('/api/dashboard/devices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pairTailscale', deviceId: pairTarget.id, ip: peer.ip, hostname: peer.hostname }),
-      })
-      if (res.ok) {
-        setPairedPeer(peer.ip)
-        toast.success(t('toast.ts.paired'))
-        refresh()
-        setTimeout(() => setPairedPeer(null), 2000)
-      } else {
-        toast.error(t('toast.error'))
-      }
-    } catch {
-      toast.error(t('toast.error'))
-    } finally {
-      setPairingPeer(null)
-    }
-  }
-
-  if (!devices.length) {
+  if (devices.length === 0) {
     return (
       <EmptyState
         icon={Smartphone}
@@ -156,159 +128,118 @@ export function DevicesView() {
     )
   }
 
-  // Renderiza uma secção por tipo de ligação
-  const CONNECTION_SECTIONS: Array<{ key: string; icon: any; tone: string }> = [
-    { key: 'usb', icon: Usb, tone: 'text-blue-600 dark:text-blue-400' },
-    { key: 'wifi', icon: Wifi, tone: 'text-cyan-600 dark:text-cyan-400' },
-    { key: 'tailscale', icon: Globe, tone: 'text-purple-600 dark:text-purple-400' },
-    { key: 'companion', icon: Smartphone, tone: 'text-primary' },
-  ]
-
   return (
     <div className="space-y-4">
-      {CONNECTION_SECTIONS.map(({ key, icon: Icon, tone }) => {
-        const sectionDevices = byConnection[key] ?? []
-        if (sectionDevices.length === 0) return null
+      {devices.map(d => {
+        const isExpanded = expandedId === d.id
+        const ConnIcon = CONN_ICONS[d.connectionType] ?? Smartphone
+        const connColor = CONN_COLORS[d.connectionType] ?? 'text-primary'
+        const s = d.stats
+
         return (
-          <div key={key} className="space-y-2">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-              <Icon className={`h-3.5 w-3.5 ${tone}`} />
-              {t(`devices.section.${key}`)}
-              <span className="ml-auto inline-flex h-4 min-w-4 px-1 items-center justify-center text-[10px] font-bold rounded-full bg-muted text-muted-foreground">
-                {sectionDevices.length}
-              </span>
-            </div>
-            <Card className="border-border/60 shadow-none">
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>{t('devices.col.name')}</TableHead>
-                      <TableHead className="hidden sm:table-cell">{t('devices.col.child')}</TableHead>
-                      <TableHead className="w-24">{t('devices.col.status')}</TableHead>
-                      <TableHead className="w-32 hidden md:table-cell">{t('devices.col.install')}</TableHead>
-                      <TableHead className="w-28 hidden lg:table-cell">{t('devices.col.ip')}</TableHead>
-                      <TableHead className="w-32 hidden lg:table-cell">{t('devices.col.lastSeen')}</TableHead>
-                      <TableHead className="w-24 text-right">{t('devices.col.actions')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sectionDevices.map(d => {
-                      const isRevealed = revealedCode === d.id
-                      const isCopied = copied === d.installCode
-                      return (
-                        <TableRow key={d.id}>
-                          <TableCell>
-                            <div className="font-medium flex items-center gap-1.5">
-                              <span
-                                className={`inline-block h-2 w-2 rounded-full ${d.online ? 'bg-green-500' : 'bg-muted-foreground/40'}`}
-                                title={d.online ? t('devices.ts.online') : t('devices.status.offline')}
-                              />
-                              {d.name}
-                            </div>
-                            <div className="text-xs text-muted-foreground">{d.model} · {d.osVersion}</div>
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                            {d.childName ?? '—'}
-                          </TableCell>
-                          <TableCell>
-                            <span className={`inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_TONES[d.status] ?? STATUS_TONES.offline}`}>
-                              {t(`devices.status.${d.status}`)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="hidden md:table-cell">
-                            <div className="flex items-center gap-1 font-mono text-sm">
-                              <span className={isRevealed ? '' : 'blur-sm select-none'}>
-                                {d.installCode}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => setRevealedCode(isRevealed ? null : d.id)}
-                              >
-                                {isRevealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                              </Button>
-                              {isRevealed && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  onClick={() => copyCode(d.installCode)}
-                                >
-                                  {isCopied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs font-mono text-muted-foreground">
-                            {d.ipAddress ? `${d.ipAddress}${d.port ? `:${d.port}` : ''}` : '—'}
-                          </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs text-muted-foreground font-mono">
-                            {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString(locale) : t('devices.never')}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {d.status !== 'revoked' && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setConfirmRevoke(d.id)}
-                                  className="gap-1 text-destructive hover:text-destructive"
-                                >
-                                  <Ban className="h-3 w-3" />
-                                  <span className="hidden sm:inline">{t('devices.revoke')}</span>
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
+          <Card key={d.id} className="border-border/60 shadow-none overflow-hidden">
+            {/* Header do dispositivo — sempre visível */}
+            <button
+              onClick={() => setExpandedId(isExpanded ? null : d.id)}
+              className="w-full p-4 flex items-center gap-3 hover:bg-muted/30 transition-colors text-left"
+            >
+              <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${connColor} bg-muted/40`}>
+                <ConnIcon className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate">{d.name}</span>
+                  <span className={`inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_TONES[d.status] ?? STATUS_TONES.offline}`}>
+                    {t(`devices.status.${d.status}`)}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {d.model} · {d.osVersion} · {t(`connection.${d.connectionType}`)}
+                  {d.ipAddress && ` · ${d.ipAddress}`}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-3 text-xs">
+                  <Stat icon={MapPin} count={s.locations} color="text-blue-500" />
+                  <Stat icon={Phone} count={s.calls} color="text-green-500" />
+                  <Stat icon={MessageSquare} count={s.sms + s.notifications} color="text-purple-500" />
+                  <Stat icon={ImageIcon} count={s.media} color="text-orange-500" />
+                  <Stat icon={AlertTriangle} count={s.alerts} color="text-red-500" />
+                </div>
+                {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              </div>
+            </button>
+
+            {/* Conteúdo expandível — detalhes do dispositivo */}
+            {isExpanded && (
+              <div className="border-t border-border/40 p-4 space-y-4 animate-fade-in">
+                {/* Grid de estatísticas detalhadas */}
+                <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-12 gap-2">
+                  <StatCard icon={MapPin} label="GPS" count={s.locations} color="text-blue-500" />
+                  <StatCard icon={Phone} label="Calls" count={s.calls} color="text-green-500" />
+                  <StatCard icon={MessageSquare} label="SMS" count={s.sms} color="text-purple-500" />
+                  <StatCard icon={MessageSquare} label="Notif" count={s.notifications} color="text-pink-500" />
+                  <StatCard icon={Clock} label="Apps" count={s.appUsage} color="text-cyan-500" />
+                  <StatCard icon={Activity} label="Web" count={s.browser} color="text-indigo-500" />
+                  <StatCard icon={AlertTriangle} label="Alertas" count={s.alerts} color="text-red-500" />
+                  <StatCard icon={Siren} label="SOS" count={s.sos} color="text-red-600" />
+                  <StatCard icon={ImageIcon} label="Mídia" count={s.media} color="text-orange-500" />
+                  <StatCard icon={MonitorPlay} label="Ecrã" count={s.screenSessions} color="text-teal-500" />
+                  <StatCard icon={Eye} label="Shots" count={s.screenshots} color="text-amber-500" />
+                  <StatCard icon={Smartphone} label="Apps Inst." count={s.installedApps} color="text-gray-500" />
+                </div>
+
+                {/* Código de instalação + ações */}
+                <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border/30">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Código:</span>
+                    <code className="text-sm font-mono px-2 py-1 rounded bg-muted">
+                      {revealedCode === d.id ? d.installCode : '••••••'}
+                    </code>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setRevealedCode(revealedCode === d.id ? null : d.id)}>
+                      {revealedCode === d.id ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    </Button>
+                    {revealedCode === d.id && (
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => copyCode(d.installCode)}>
+                        {copied === d.installCode ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    {d.screenW}×{d.screenH}px
+                  </div>
+                  {d.lastSeenAt && (
+                    <div className="text-xs text-muted-foreground">
+                      Visto: {new Date(d.lastSeenAt).toLocaleString(locale)}
+                    </div>
+                  )}
+                  {d.status !== 'revoked' && (
+                    <Button variant="outline" size="sm" onClick={() => setConfirmRevoke(d.id)} className="ml-auto gap-1 text-destructive">
+                      <Ban className="h-3 w-3" />
+                      {t('devices.revoke')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
         )
       })}
 
-      {/* Companion QR section */}
+      {/* QR Companion */}
       <Card className="border-border/60 shadow-none">
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="shrink-0 rounded-md bg-white p-3 border border-border/40">
-              {installUrl ? (
-                <QRCodeSVG
-                  value={installUrl}
-                  size={120}
-                  level="M"
-                  marginSize={2}
-                  bgColor="#ffffff"
-                  fgColor="#0a0a0a"
-                />
-              ) : (
-                <div className="h-[120px] w-[120px] flex items-center justify-center">
-                  <QrCode className="h-16 w-16 text-foreground/30" />
-                </div>
-              )}
+            <div className="w-28 h-28 bg-foreground/[0.03] rounded-md flex items-center justify-center border border-border/40">
+              <QrCode className="h-16 w-16 text-foreground/40" />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-serif-display text-base mb-1">{t('devices.companion.qr')}</h3>
-              <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
-                {t('devices.companion.qr.subtitle')}
-              </p>
-              {installUrl && (
-                <p className="text-[11px] font-mono text-muted-foreground/70 mb-3 break-all">
-                  {installUrl}{tsIp ? '  · via Tailscale' : ''}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mb-3">{t('devices.companion.qr.subtitle')}</p>
               <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm" variant="outline" className="gap-1.5">
-                  <a href="/api/download/companion" download>
-                    <Download className="h-3 w-3" />
-                    {t('devices.companion.download')}
-                  </a>
+                <Button size="sm" variant="outline" className="gap-1.5">
+                  <Download className="h-3 w-3" />
+                  {t('devices.companion.download')}
                 </Button>
                 <Button size="sm" variant="ghost" className="gap-1.5">
                   <Wifi className="h-3 w-3" />
@@ -320,88 +251,40 @@ export function DevicesView() {
         </CardContent>
       </Card>
 
-      {/* Scan da rede Tailscale — alternativa ao QR para aparelhos que não scanneiam */}
-      <Card className="border-border/60 shadow-none">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Globe className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            <h3 className="font-serif-display text-base">{t('devices.ts.scan.title')}</h3>
-            {tailscale?.connected && tailscale.tailnetName && (
-              <span className="ml-auto text-[11px] font-mono text-muted-foreground truncate max-w-[40%]">
-                {tailscale.tailnetName}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-            {t('devices.ts.scan.subtitle')}
-          </p>
+      {/* Confirm revoke */}
+      {confirmRevoke && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmRevoke(null)}>
+          <Card className="max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <CardContent className="p-6 space-y-4">
+              <h3 className="font-serif-display text-lg">{t('devices.revoke')}</h3>
+              <p className="text-sm text-muted-foreground">{t('settings.danger.delete.confirm')}</p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setConfirmRevoke(null)}>{t('common.cancel')}</Button>
+                <Button variant="destructive" size="sm" onClick={() => revoke(confirmRevoke)}>{t('devices.revoke')}</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
 
-          {tsLoading && !tailscale ? (
-            <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-          ) : !tailscale?.installed || !tailscale?.connected ? (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              {t('devices.ts.scan.notInstalled')}
-            </p>
-          ) : tailscale.peers.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{t('devices.ts.scan.empty')}</p>
-          ) : (
-            <div className="space-y-1.5">
-              {tailscale.peers.map((peer) => (
-                <div
-                  key={peer.ip || peer.hostname}
-                  className="flex items-center gap-3 rounded-md border border-border/50 px-3 py-2"
-                >
-                  <Smartphone className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{peer.hostname}</div>
-                    <div className="text-[11px] font-mono text-muted-foreground truncate">
-                      {peer.ip}{peer.os ? ` · ${peer.os}` : ''}
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      peer.online
-                        ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {peer.online ? t('devices.ts.online') : t('devices.status.offline')}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 shrink-0"
-                    disabled={!pairTarget || !peer.ip || pairingPeer === peer.ip}
-                    title={!pairTarget ? t('devices.ts.noTarget') : undefined}
-                    onClick={() => associatePeer(peer)}
-                  >
-                    <Link2 className="h-3 w-3" />
-                    {pairedPeer === peer.ip ? t('devices.ts.associated') : t('devices.ts.associate')}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+function Stat({ icon: Icon, count, color }: { icon: any; count: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <Icon className={`h-3 w-3 ${color}`} />
+      <span className="font-mono text-xs">{count}</span>
+    </div>
+  )
+}
 
-      {/* Revoke confirm */}
-      <Dialog open={!!confirmRevoke} onOpenChange={(o) => !o && setConfirmRevoke(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t('devices.revoke')}</DialogTitle>
-            <DialogDescription>
-              {t('settings.danger.delete.confirm')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmRevoke(null)}>{t('common.cancel')}</Button>
-            <Button variant="destructive" onClick={() => confirmRevoke && revoke(confirmRevoke)}>
-              {t('devices.revoke')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+function StatCard({ icon: Icon, label, count, color }: { icon: any; label: string; count: number; color: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1 p-2 rounded-md border border-border/40 hover:bg-muted/30 transition-colors">
+      <Icon className={`h-4 w-4 ${color}`} />
+      <div className="text-xs font-mono text-foreground">{count}</div>
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>
     </div>
   )
 }
