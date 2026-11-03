@@ -1,7 +1,6 @@
 package com.screenporter.companion.monitoring
 
 import android.app.Notification
-import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.service.notification.NotificationListenerService
@@ -16,20 +15,27 @@ import kotlinx.coroutines.launch
 
 /**
  * NotificationListenerService — captures notifications from messaging apps
- * (WhatsApp, Instagram, TikTok, Snapchat, Messenger) and runs AlertDetector
- * on the notification text.
+ * (WhatsApp, Instagram, TikTok, Snapchat, Messenger, Telegram, Discord, etc.)
  *
- * If a risk signal is detected (cyberbullying, sexting, drugs, self_harm, predator),
- * it sends an alert event to the server:
- *   {type:"alert", payload:{platform, severity, category, snippet, timestamp}}
+ * Captura o TEXTO COMPLETO da notificação (que já está visível no ecrã do telemóvel).
+ * Isto NÃO é bypass de cifragem E2E — é o conteúdo que aparece na notificação,
+ * visível para o utilizador do dispositivo.
  *
- * Privacy:
- *  - Only the FLAG + CATEGORY + REDACTED SNIPPET are sent (NOT the raw notification text).
- *  - Only messaging apps are scanned (filtered by package name).
- *  - No keylogging, no full message interception, no storage.
+ * Cada notificação é enviada para o servidor com:
+ *  - platform (whatsapp, instagram, etc.)
+ *  - packageName (com.whatsapp, etc.)
+ *  - title (geralmente o nome do contacto)
+ *  - text (conteúdo completo da mensagem visível na notificação)
+ *  - flagged + flagReason + severity (se o AlertDetector detetar risco)
  *
- * Requires the user to enable the listener in:
- *   Settings > Notifications > Notification access > ScreenPorter
+ * Purpose: detetar cyberbullying, drogas, automutilação, predadores — para que
+ * os pais possam intervir antes que seja tarde demais.
+ *
+ * Privacy safeguards:
+ *  - App é sempre visível (ícone + notificação permanente)
+ *  - Consentimento explícito do pai/mãe é obrigatório (ConsentActivity)
+ *  - Não há gravação de chamadas nem keylogger
+ *  - Não bypass de E2E (só captura o que já está no ecrã)
  */
 class NotificationListener : NotificationListenerService() {
 
@@ -42,26 +48,23 @@ class NotificationListener : NotificationListenerService() {
             "com.snapchat.android",
             "com.facebook.orca",       // Messenger
             "com.facebook.katana",      // Facebook
-            "com.google.android.apps.messaging", // Messages
+            "com.google.android.apps.messaging", // Messages (SMS)
             "org.telegram.messenger",
             "com.discord",
-            "com.skype.raider"
+            "com.skype.raider",
+            "com.viber.voip",
+            "com.tencent.mm",            // WeChat
+            "jp.naver.line.android",    // Line
+            "com.kakao.talk",           // KakaoTalk
+            "com.truecaller",           // Truecaller
         )
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private lateinit var prefs: com.screenporter.companion.util.PreferencesManager
-    private lateinit var api: ApiClient
     private val detector = AlertDetector()
 
-    override fun onCreate() {
-        super.onCreate()
-        prefs = (application as ScreenPorterApp).prefs
-        api = ApiClient(prefs)
-    }
-
     override fun onListenerConnected() {
-        Log.i(TAG, "Notification listener connected")
+        Log.i(TAG, "Notification listener connected — capturando notificações de ${MESSENGER_PACKAGES.size} apps")
     }
 
     override fun onListenerDisconnected() {
@@ -71,46 +74,73 @@ class NotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val pkg = sbn?.packageName ?: return
         if (pkg !in MESSENGER_PACKAGES) return
-        if (!prefs.consentSigned) return
+
+        val app = applicationContext as ScreenPorterApp
+        if (!app.prefs.consentSigned) {
+            Log.d(TAG, "Consent not signed — skipping notification from $pkg")
+            return
+        }
 
         val notification = sbn.notification ?: return
-        val text = extractNotificationText(notification) ?: return
+        val (title, text) = extractNotificationText(notification)
         if (text.isBlank()) return
 
-        val alert = detector.scan(text)
-        if (!alert.flagged) return
+        // Run alert detection on the full text
+        val alert = detector.scan("$title $text")
 
-        // Send alert event
         val severity = when (alert.flagReason) {
             "predator", "self_harm" -> "critical"
             "sexting", "cyberbullying" -> "high"
             "drugs" -> "medium"
             else -> "low"
         }
+
+        val platform = pkgToPlatform(pkg)
+
+        // Send FULL notification text (not redacted) — the parent needs to see
+        // the actual message to understand the context and intervene.
         val event = mapOf(
-            "type" to "alert",
+            "type" to "notification",
             "payload" to mapOf(
-                "platform" to pkgToPlatform(pkg),
+                "platform" to platform,
+                "packageName" to pkg,
+                "title" to title,
+                "text" to text,
+                "flagged" to alert.flagged,
+                "flagReason" to (alert.flagReason ?: ""),
                 "severity" to severity,
-                "category" to (alert.flagReason ?: "unknown"),
-                "snippet" to alert.snippet,
                 "timestamp" to System.currentTimeMillis()
             )
         )
+
         scope.launch {
+            val api = ApiClient(app.prefs)
             val ok = api.ingest(listOf(event))
-            if (ok) Log.i(TAG, "Alert sent: ${alert.flagReason} from $pkg")
-            else Log.w(TAG, "Failed to send alert")
+            if (ok) {
+                Log.i(TAG, "Notification captured: [$platform] $title — ${text.take(50)}${if (text.length > 50) "…" else ""}")
+                if (alert.flagged) {
+                    Log.w(TAG, "⚠ ALERT: ${alert.flagReason} (severity=$severity) from $platform")
+                }
+            } else {
+                Log.w(TAG, "Failed to send notification from $pkg")
+            }
         }
     }
 
-    private fun extractNotificationText(notification: Notification): String? {
-        // Extract text from Notification.extras
-        val extras = notification.extras ?: return null
-        val title = extras.getCharSequence("android.title")?.toString() ?: ""
-        val text = extras.getCharSequence("android.text")?.toString() ?: ""
-        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-        return "$title $text $bigText"
+    /**
+     * Extracts title + text from a notification.
+     * Tries multiple extras keys for compatibility across Android versions.
+     */
+    private fun extractNotificationText(notification: Notification): Pair<String, String> {
+        val extras = notification.extras ?: return Pair("", "")
+        val title = extras.getCharSequence("android.title")?.toString()
+            ?: extras.getCharSequence("android.bigText")?.toString()?.take(50)
+            ?: ""
+        val text = extras.getCharSequence("android.text")?.toString()
+            ?: extras.getCharSequence("android.bigText")?.toString()
+            ?: extras.getCharSequence("android.subText")?.toString()
+            ?: ""
+        return Pair(title, text)
     }
 
     private fun pkgToPlatform(pkg: String): String {
@@ -125,6 +155,11 @@ class NotificationListener : NotificationListenerService() {
             "org.telegram.messenger" -> "telegram"
             "com.discord" -> "discord"
             "com.skype.raider" -> "skype"
+            "com.viber.voip" -> "viber"
+            "com.tencent.mm" -> "wechat"
+            "jp.naver.line.android" -> "line"
+            "com.kakao.talk" -> "kakao"
+            "com.truecaller" -> "truecaller"
             else -> "other"
         }
     }

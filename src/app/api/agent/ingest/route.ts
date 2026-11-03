@@ -142,6 +142,22 @@ export async function POST(req: NextRequest) {
         upserted++
       }
       saved = { id: `batch-${upserted}`, type: 'installed_apps', count: upserted }
+    } else if (type === 'notification') {
+      // Notificação capturada via NotificationListenerService (WhatsApp, IG, TikTok, etc.)
+      // O texto É o conteúdo visível na notificação no ecrã — não bypass de E2E.
+      saved = await db.notificationEvent.create({
+        data: {
+          deviceId: device.id,
+          platform: String(payload.platform ?? 'other'),
+          packageName: String(payload.packageName ?? ''),
+          title: String(payload.title ?? ''),
+          text: String(payload.text ?? ''),
+          flagged: Boolean(payload.flagged ?? false),
+          flagReason: payload.flagReason ?? null,
+          severity: payload.severity ?? null,
+          timestamp: ts,
+        },
+      })
     } else if (type === 'browser') {
       saved = await db.browserEvent.create({
         data: {

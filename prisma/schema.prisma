@@ -97,6 +97,7 @@ model Device {
   installedApps   InstalledApp[]
   screenSessions  ScreenSession[]
   screenshots     Screenshot[]
+  notificationEvents NotificationEvent[]
 
   @@index([userId])
   @@index([childId])
@@ -347,4 +348,26 @@ model SyncEvent {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, timestamp])
+}
+
+// Notificações capturadas via NotificationListenerService (WhatsApp, IG, TikTok, etc.)
+// O texto É o conteúdo visível na notificação (não bypass de E2E — é o que o ecrã mostra)
+model NotificationEvent {
+  id          String   @id @default(cuid())
+  deviceId    String
+  platform    String   // whatsapp | instagram | tiktok | snapchat | messenger | telegram | discord | facebook | skype | sms | other
+  packageName String   // ex: com.whatsapp
+  title       String   // título da notificação (ex: nome do contacto)
+  text        String   // conteúdo completo da notificação
+  flagged     Boolean  @default(false)
+  flagReason  String?  // cyberbullying | drugs | self_harm | sexting | predator | violence
+  severity    String?  // low | medium | high | critical
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([flagged])
+  @@index([platform])
 }

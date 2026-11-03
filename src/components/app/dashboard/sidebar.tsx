@@ -49,6 +49,7 @@ const NAV_GROUPS: { groupKey: string; items: NavItem[] }[] = [
       { key: 'apps', icon: Clock },
       { key: 'browser', icon: Globe2 },
       { key: 'alerts', icon: AlertTriangle, badgeKey: 'alerts' },
+      { key: 'notifications', icon: MessageCircle },
       { key: 'sos', icon: Siren, badgeKey: 'sos' },
     ],
   },
