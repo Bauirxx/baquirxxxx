@@ -13,6 +13,7 @@ import { AppsView } from './views/apps'
 import { BrowserView } from './views/browser'
 import { AlertsView } from './views/alerts'
 import { NotificationsView } from './views/notifications'
+import { MediaView } from './views/media'
 import { SosView } from './views/sos'
 import { DevicesView } from './views/devices'
 import { SettingsView } from './views/settings'
@@ -108,6 +109,7 @@ export function DashboardLayout({ user, currentView, onViewChange, onLogout, onL
               {currentView === 'browser' && <BrowserView />}
               {currentView === 'alerts' && <AlertsView onAlertsChange={setActiveAlerts} />}
               {currentView === 'notifications' && <NotificationsView />}
+              {currentView === 'media' && <MediaView />}
               {currentView === 'sos' && <SosView onSosChange={setActiveSos} />}
               {currentView === 'screen-mirror' && <ScreenMirrorView onViewChange={onViewChange} />}
               {currentView === 'remote-control' && <RemoteControlView />}

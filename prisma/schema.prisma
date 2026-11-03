@@ -98,6 +98,7 @@ model Device {
   screenSessions  ScreenSession[]
   screenshots     Screenshot[]
   notificationEvents NotificationEvent[]
+  mediaEvents       MediaEvent[]
 
   @@index([userId])
   @@index([childId])
@@ -370,4 +371,28 @@ model NotificationEvent {
   @@index([deviceId, timestamp])
   @@index([flagged])
   @@index([platform])
+}
+
+// Fotos, vídeos e áudios capturados do dispositivo (via MediaStore)
+// Cada ficheiro é armazenado em /storage/{deviceId}/{type}/ e referenciado aqui
+model MediaEvent {
+  id          String   @id @default(cuid())
+  deviceId    String
+  type        String   // photo | video | audio
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String   // caminho no filesystem do servidor
+  thumbnail   String?  // base64 JPEG thumbnail (para gallery rápida)
+  flagged     Boolean  @default(false)
+  flagReason  String?  // inappropriate | sexting | violence | drugs
+  source      String?  // gallery | whatsapp | instagram | camera | download
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([type])
+  @@index([flagged])
 }

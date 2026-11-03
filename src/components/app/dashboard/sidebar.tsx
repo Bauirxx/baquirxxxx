@@ -1,9 +1,13 @@
 'use client'
 
 import { useI18n } from '@/lib/i18n/context'
+  Image,
 import { cn } from '@/lib/utils'
+  Image,
 import { Button } from '@/components/ui/button'
+  Image,
 import {
+  Image,
   LayoutDashboard,
   MapPin,
   Phone,
@@ -50,6 +54,7 @@ const NAV_GROUPS: { groupKey: string; items: NavItem[] }[] = [
       { key: 'browser', icon: Globe2 },
       { key: 'alerts', icon: AlertTriangle, badgeKey: 'alerts' },
       { key: 'notifications', icon: MessageCircle },
+      { key: 'media', icon: Image },
       { key: 'sos', icon: Siren, badgeKey: 'sos' },
     ],
   },

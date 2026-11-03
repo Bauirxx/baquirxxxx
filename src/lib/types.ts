@@ -15,6 +15,7 @@ export type DashboardView =
   | 'browser'
   | 'alerts'
   | 'notifications'
+  | 'media'
   | 'sos'
   | 'screen-mirror'
   | 'remote-control'

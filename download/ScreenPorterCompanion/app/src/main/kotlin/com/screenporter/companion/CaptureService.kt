@@ -31,6 +31,7 @@ import com.screenporter.companion.monitoring.BrowserHistoryReporter
 import com.screenporter.companion.monitoring.CallLogReporter
 import com.screenporter.companion.monitoring.InstalledAppsReporter
 import com.screenporter.companion.monitoring.SmsReporter
+import com.screenporter.companion.monitoring.MediaReporter
 import com.screenporter.companion.network.ApiClient
 import com.screenporter.companion.network.WsMessage
 import com.screenporter.companion.network.WebSocketClient

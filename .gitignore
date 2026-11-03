@@ -63,3 +63,4 @@ download/ScreenPorterCompanion/local.properties
 
 # node_modules em qualquer subpasta (mini-services têm deps recursivas)
 node_modules/
+storage/
