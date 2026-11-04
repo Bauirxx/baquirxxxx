@@ -330,6 +330,12 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, ConsentActivity::class.java))
                 return
             }
+            // Escuta remota por microfone (ambiente/conversas): pede a permissão
+            // durante a ligação. Se for recusada, só a escuta por microfone fica
+            // indisponível — o som das apps e o resto continuam a funcionar.
+            if (!PermissionState.isMicGranted(this)) {
+                permissionsLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+            }
             if (prefs.authToken.isNullOrEmpty()) {
                 scope.launch {
                     val ok = withContext(Dispatchers.IO) { api.login() }

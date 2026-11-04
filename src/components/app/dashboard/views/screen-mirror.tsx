@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { H264Decoder } from '@/lib/h264-decoder'
 import { DeviceSocket, type SessionMetaMsg } from '@/lib/device-socket'
+import { PcmPlayer } from '@/lib/audio-player'
 import { useI18n } from '@/lib/i18n/context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,10 @@ import {
   Home,
   SquareStack,
   Power,
+  Volume2,
+  VolumeX,
+  Mic,
+  Speaker,
 } from 'lucide-react'
 import type { ScreenSessionDTO, DashboardView, DeviceDTO } from '@/lib/types'
 
@@ -48,13 +53,20 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
   const streamingRef = useRef(false)
   const [streaming, setStreaming] = useState(false)
 
+  // Escuta remota (áudio do dispositivo → dashboard).
+  const audioPlayerRef = useRef<PcmPlayer | null>(null)
+  const [listening, setListening] = useState(false)
+  const [audioSource, setAudioSource] = useState<'playback' | 'mic'>('playback')
+  const [audioInfo, setAudioInfo] = useState<{ sampleRate: number; channels: number; source: string } | null>(null)
+  const [audioError, setAudioError] = useState<string | null>(null)
+
   // Estatísticas REAIS do stream ao vivo (sem mocks): contadas no navegador à
   // medida que os pacotes H.264 chegam e são descodificados.
   const framesRef = useRef(0)
   const bytesRef = useRef(0)
   const firstFrameAtRef = useRef<number | null>(null)
   const lastTickRef = useRef<{ t: number; frames: number; bytes: number }>({ t: 0, frames: 0, bytes: 0 })
-  const [liveStats, setLiveStats] = useState<{ frames: number; fps: number; kbps: number; seconds: number }>({ frames: 0, fps: 0, kbps: 0, seconds: 0 })
+  const [liveStats, setLiveStats] = useState<{ frames: number; fps: number; kbps: number; seconds: number; decoded: number; lastError: string | null }>({ frames: 0, fps: 0, kbps: 0, seconds: 0, decoded: 0, lastError: null })
 
   const devices = devicesData?.devices ?? []
   const activeDevices = devices.filter(d => d.status !== 'revoked')
@@ -83,7 +95,7 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMeta(null)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLiveStats({ frames: 0, fps: 0, kbps: 0, seconds: 0 })
+    setLiveStats({ frames: 0, fps: 0, kbps: 0, seconds: 0, decoded: 0, lastError: null })
 
     const canvas = canvasRef.current
     if (!canvas || !H264Decoder.isSupported()) {
@@ -94,10 +106,14 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
     let decoder: H264Decoder | null = null
     try {
       decoder = new H264Decoder(canvas)
-      decoder.onError = (e) => console.error('[mirror]', e.message)
+      decoder.onError = (e) => {
+        console.error('[mirror] decoder error:', e.message)
+        toast.error('Decoder H.264: ' + e.message)
+      }
       decoderRef.current = decoder
     } catch (e) {
-      console.error('[mirror] decoder', e)
+      console.error('[mirror] decoder init failed:', e)
+      toast.error('Falha ao inicializar decoder H.264')
       return
     }
 
@@ -119,15 +135,41 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
         setStreaming(true)
       }
     }
+    socket.onAudioMeta = (m) => {
+      if (m.active === false) {
+        // O dispositivo parou a captura (ou caiu).
+        audioPlayerRef.current?.stop()
+        setListening(false)
+        setAudioInfo(null)
+        return
+      }
+      const sr = m.sampleRate ?? 16000
+      const ch = m.channels ?? 1
+      audioPlayerRef.current?.configure(sr, ch)
+      setAudioInfo({ sampleRate: sr, channels: ch, source: m.source ?? audioSource })
+      setAudioError(null)
+    }
+    socket.onAudioPacket = (p) => {
+      audioPlayerRef.current?.pushPcm(p.payload)
+    }
     socket.onServerMessage = (msg) => {
       if (msg.t === 'closed') {
         streamingRef.current = false
         setStreaming(false)
+      } else if (msg.t === 'audio_error') {
+        setAudioError(msg.message || 'Falha na captura de áudio')
+        audioPlayerRef.current?.stop()
+        setListening(false)
+        setAudioInfo(null)
+        toast.error(msg.message || 'Falha na captura de áudio')
       }
     }
     socket.onClose = () => {
       streamingRef.current = false
       setStreaming(false)
+      audioPlayerRef.current?.stop()
+      setListening(false)
+      setAudioInfo(null)
     }
 
     return () => {
@@ -136,6 +178,11 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
       decoderRef.current = null
       socketRef.current = null
       metaRef.current = null
+      audioPlayerRef.current?.close()
+      audioPlayerRef.current = null
+      setListening(false)
+      setAudioInfo(null)
+      setAudioError(null)
     }
   }, [selectedDeviceId])
 
@@ -149,7 +196,9 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
       const kbps = dt > 0 ? Math.round(((bytesRef.current - prev.bytes) * 8) / dt / 1000) : 0
       lastTickRef.current = { t: now, frames: framesRef.current, bytes: bytesRef.current }
       const seconds = firstFrameAtRef.current ? Math.floor((now - firstFrameAtRef.current) / 1000) : 0
-      setLiveStats({ frames: framesRef.current, fps: Math.max(0, fps), kbps: Math.max(0, kbps), seconds })
+      const decoded = decoderRef.current?.decodedFrames ?? 0
+      const lastError = decoderRef.current?.lastError ?? null
+      setLiveStats({ frames: framesRef.current, fps: Math.max(0, fps), kbps: Math.max(0, kbps), seconds, decoded, lastError })
     }, 1000)
     return () => clearInterval(iv)
   }, [])
@@ -245,6 +294,52 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
     else if (cmd === 'home') s.home()
     else if (cmd === 'recents') s.recents()
     else if (cmd === 'power') s.power()
+  }
+
+  // Escuta remota: arranca o AudioContext no gesto do utilizador e pede ao
+  // dispositivo para começar a enviar áudio da fonte escolhida.
+  function startListening(source: 'playback' | 'mic') {
+    const s = socketRef.current
+    if (!s) return
+    let p = audioPlayerRef.current
+    if (!p) {
+      p = new PcmPlayer()
+      audioPlayerRef.current = p
+    }
+    if (!p.isSupported()) {
+      toast.error('Áudio ao vivo não suportado neste navegador')
+      return
+    }
+    // Arranca o contexto já (sob o clique); a taxa real é ajustada no audio_meta.
+    p.configure(16000, 1)
+    setAudioError(null)
+    setAudioSource(source)
+    s.audioStart(source)
+    setListening(true)
+  }
+
+  function stopListening() {
+    socketRef.current?.audioStop()
+    audioPlayerRef.current?.stop()
+    setListening(false)
+    setAudioInfo(null)
+  }
+
+  function toggleListen() {
+    if (listening) stopListening()
+    else startListening(audioSource)
+  }
+
+  // Troca a fonte de áudio; se já estiver a escutar, reinicia na nova fonte.
+  function selectAudioSource(source: 'playback' | 'mic') {
+    if (source === audioSource) return
+    setAudioSource(source)
+    if (listening) {
+      socketRef.current?.audioStop()
+      audioPlayerRef.current?.stop()
+      // pequeno intervalo para a app fechar a captura anterior
+      setTimeout(() => startListening(source), 250)
+    }
   }
 
   function toggleFullscreen() {
@@ -395,6 +490,60 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
                 <Maximize2 className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Barra de ESCUTA REMOTA: ouve o áudio do dispositivo ao vivo.
+                Fonte 'Apps' = som interno das aplicações (vídeos/jogos/media);
+                'Microfone' = ambiente/conversas à volta do telemóvel. */}
+            <div className="flex flex-wrap items-center justify-center gap-2 py-3 border-t border-border/40">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground mr-1">Escuta</span>
+              <div className="inline-flex rounded-md border border-border overflow-hidden">
+                <button
+                  onClick={() => selectAudioSource('playback')}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    audioSource === 'playback'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted/50'
+                  }`}
+                  title="Som das aplicações (media/jogos/vídeo)"
+                >
+                  <Speaker className="h-3.5 w-3.5" /> Apps
+                </button>
+                <button
+                  onClick={() => selectAudioSource('mic')}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border-l border-border transition-colors ${
+                    audioSource === 'mic'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted/50'
+                  }`}
+                  title="Microfone (ambiente/conversas)"
+                >
+                  <Mic className="h-3.5 w-3.5" /> Microfone
+                </button>
+              </div>
+              <Button
+                size="sm"
+                variant={listening ? 'destructive' : 'default'}
+                onClick={toggleListen}
+                className="gap-1.5"
+              >
+                {listening ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                {listening ? 'Parar' : 'Escutar'}
+              </Button>
+              {listening && audioInfo && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-green-600 dark:text-green-400">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-soft-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                  </span>
+                  {audioInfo.source === 'mic' ? 'mic' : 'apps'} · {Math.round(audioInfo.sampleRate / 1000)}kHz{audioInfo.channels > 1 ? ' · estéreo' : ''}
+                </span>
+              )}
+            </div>
+            {audioError && (
+              <div className="px-3 pb-3 -mt-1 text-center text-[11px] text-red-600 dark:text-red-400">
+                {audioError}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -413,8 +562,14 @@ export function ScreenMirrorView({ onViewChange }: ScreenMirrorViewProps) {
                 <Meta icon={Layers} label={t('screen.session.bitrate')} value={streaming ? (liveStats.kbps >= 1000 ? `${(liveStats.kbps / 1000).toFixed(1)} Mbps` : `${liveStats.kbps} kbps`) : '—'} />
                 <Meta icon={MonitorPlay} label={t('screen.session.codec')} value={(meta?.codec ?? 'H264').toUpperCase()} />
                 <Meta icon={Activity} label={t('screen.session.frames')} value={liveStats.frames.toLocaleString()} />
+                <Meta icon={Activity} label="Decoded" value={liveStats.decoded.toLocaleString()} />
                 <Meta icon={Clock} label={t('screen.session.duration')} value={formatDuration(liveStats.seconds)} />
                 <Meta icon={MonitorPlay} label={t('screen.session.resolution')} value={meta ? `${meta.width}×${meta.height}` : '—'} />
+                {liveStats.lastError && (
+                  <div className="text-[10px] text-red-500 break-all mt-1 p-1.5 bg-red-50 dark:bg-red-950/30 rounded">
+                    {liveStats.lastError}
+                  </div>
+                )}
                 <div className="flex gap-2 pt-3">
                   <Button size="sm" variant="outline" onClick={takeScreenshot} disabled={!streaming} className="gap-1.5 flex-1">
                     <Camera className="h-3 w-3" />

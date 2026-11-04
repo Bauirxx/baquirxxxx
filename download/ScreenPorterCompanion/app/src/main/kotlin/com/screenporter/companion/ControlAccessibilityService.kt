@@ -119,22 +119,30 @@ class ControlAccessibilityService : AccessibilityService() {
             callback(null)
             return
         }
-        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor,
-            object : TakeScreenshotCallback {
-                override fun onSuccess(screenshot: ScreenshotResult) {
-                    val bitmap = Bitmap.wrapHardwareBuffer(
-                        screenshot.hardwareBuffer,
-                        screenshot.colorSpace
-                    )
-                    callback(bitmap)
-                    screenshot.hardwareBuffer.close()
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        val buffer = screenshot.hardwareBuffer
+                        val bmp = try {
+                            Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                                ?.copy(Bitmap.Config.ARGB_8888, false)
+                        } catch (e: Exception) {
+                            null
+                        } finally {
+                            buffer.close()
+                        }
+                        callback(bmp)
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "takeScreenshot failed: $errorCode")
+                        callback(null)
+                    }
                 }
-                override fun onFailure(errorCode: Int) {
-                    Log.w(TAG, "takeScreenshot failed: $errorCode")
-                    callback(null)
-                }
-            }
-        )
+            )
+        } catch (e: Exception) {
+            callback(null)
+        }
     }
 
     /**

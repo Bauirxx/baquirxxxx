@@ -115,7 +115,7 @@ export function DashboardLayout({ user, currentView, onViewChange, onLogout, onL
               {currentView === 'remote-control' && <RemoteControlView />}
               {currentView === 'sync' && <SyncView />}
               {currentView === 'metrics' && <MetricsView />}
-              {currentView === 'devices' && <DevicesView />}
+              {currentView === 'devices' && <DevicesView user={user} />}
               {currentView === 'settings' && <SettingsView user={user} onLocaleChange={onLocaleChange} />}
             </div>
           </main>

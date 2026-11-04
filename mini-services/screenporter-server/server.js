@@ -29,7 +29,7 @@ const hub = new Map()
 function entryFor(userId) {
   let e = hub.get(userId)
   if (!e) {
-    e = { companion: null, browsers: new Set(), meta: null, lastConfig: null, gop: [], gopBytes: 0 }
+    e = { companion: null, browsers: new Set(), meta: null, lastConfig: null, gop: [], gopBytes: 0, lastAudioMeta: null }
     hub.set(userId, e)
   }
   return e
@@ -73,6 +73,17 @@ function enquadrar(config, keyFrame, payload) {
   return Buffer.concat([header, payload])
 }
 
+// Monta o cabecalho de 12 bytes de um pacote de AUDIO para o browser. Usa o bit
+// 0x80000000 (que o video nunca liga) como marcador, para o navegador distinguir
+// audio de video sem quebrar o formato de video existente. payload = PCM16LE.
+function enquadrarAudio(payload) {
+  const header = Buffer.alloc(12)
+  header.writeUInt32BE(0x80000000, 0) // marcador de audio
+  header.writeUInt32BE(0, 4)
+  header.writeUInt32BE(payload.length, 8)
+  return Buffer.concat([header, payload])
+}
+
 // Traduz um comando de controlo do browser (formato scrcpy) para o comando que
 // a app Companion entende (ControlAccessibilityService: {command, x:0..1, y:0..1}).
 function traduzirControlo(msg) {
@@ -92,6 +103,16 @@ function traduzirControlo(msg) {
       return { command: 'recents' }
     case 'power':
       return { command: 'power' }
+    case 'audio':
+      // Escuta remota: liga/desliga a captura de audio na app. source =
+      // 'playback' (som das apps) | 'mic' (microfone/ambiente).
+      if (msg.action === 'start') {
+        return { command: 'audio_start', source: msg.source === 'mic' ? 'mic' : 'playback' }
+      }
+      if (msg.action === 'stop') {
+        return { command: 'audio_stop' }
+      }
+      return null
     default:
       return null
   }
@@ -215,7 +236,19 @@ async function onCompanion(ws, token) {
       const flags = buf[0]
       const isKey = (flags & 0x01) !== 0
       const isConfig = (flags & 0x02) !== 0
+      const isAudio = (flags & 0x04) !== 0
       const payload = buf.subarray(12)
+
+      // AUDIO: nao entra no buffer de recuperacao de video (GOP); so reencaminha
+      // ao vivo para quem esta a escutar. Chega quando o operador liga a escuta.
+      if (isAudio) {
+        const wrappedAudio = enquadrarAudio(payload)
+        for (const b of e.browsers) {
+          if (b.readyState === 1) { try { b.send(wrappedAudio) } catch {} }
+        }
+        return
+      }
+
       const wrapped = enquadrar(isConfig, isKey, payload)
 
       frames++
@@ -249,6 +282,18 @@ async function onCompanion(ws, token) {
       console.log('[companion] CRASH anterior reportado pela app:\n' + String(msg.stack || '').slice(0, 2500))
       return
     }
+    // Audio: meta (formato do PCM) e erros da captura. Reencaminha aos browsers;
+    // guarda a ultima meta para quem abre a meio (catch-up).
+    if (msg && (msg.t === 'audio_meta' || msg.t === 'audio_error')) {
+      if (msg.t === 'audio_meta') {
+        e.lastAudioMeta = (msg.active === false) ? null : data.toString()
+      }
+      for (const b of e.browsers) {
+        if (b.readyState === 1) { try { b.send(data.toString()) } catch {} }
+      }
+      console.log('[companion] ' + msg.t + ' ' + data.toString().slice(0, 160))
+      return
+    }
     if (msg && msg.t === 'hello') {
       e.meta = { id: msg.id, model: msg.model, width: msg.width, height: msg.height }
       for (const b of e.browsers) {
@@ -266,8 +311,12 @@ async function onCompanion(ws, token) {
       e.lastConfig = null
       e.gop = []
       e.gopBytes = 0
+      e.lastAudioMeta = null
       for (const b of e.browsers) {
-        if (b.readyState === 1) { try { b.send(JSON.stringify({ t: 'closed' })) } catch {} }
+        if (b.readyState === 1) {
+          try { b.send(JSON.stringify({ t: 'audio_meta', active: false })) } catch {}
+          try { b.send(JSON.stringify({ t: 'closed' })) } catch {}
+        }
       }
     }
     const dur = ((Date.now() - ligadoEm) / 1000).toFixed(1)
@@ -288,6 +337,7 @@ async function onBrowser(ws, deviceId) {
 
   // Catch-up: meta + config + ultimo GOP, para ver ja (mesmo entrando a meio).
   if (e.meta) { try { ws.send(JSON.stringify({ t: 'meta', ...e.meta })) } catch {} }
+  if (e.lastAudioMeta) { try { ws.send(e.lastAudioMeta) } catch {} }
   if (e.lastConfig) { try { ws.send(e.lastConfig) } catch {} }
   for (const pkt of e.gop) { if (ws.readyState === 1) { try { ws.send(pkt) } catch {} } }
 

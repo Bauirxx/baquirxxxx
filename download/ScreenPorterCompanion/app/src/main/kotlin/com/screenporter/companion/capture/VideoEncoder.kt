@@ -81,12 +81,14 @@ class VideoEncoder(
         // (erro do codec no Unisoc, buffer, etc.) mataria o PROCESSO inteiro no
         // Android — foi o que cortava o WebSocket a 0.1s com code=1006 e 0 frames.
         // (o totalcontrol também protege o dreno e só pára o loop em caso de erro)
+        var frameCount = 0
         try {
             while (isRunning) {
                 val outBuf = try {
                     c.dequeueOutputBuffer(bufferInfo, 10_000)
                 } catch (e: Exception) {
-                    break // codec parou de produzir — termina o dreno sem rebentar
+                    android.util.Log.e("SP-VideoEncoder", "dequeueOutputBuffer falhou após $frameCount frames", e)
+                    break
                 }
                 when {
                     outBuf == MediaCodec.INFO_TRY_AGAIN_LATER -> continue
@@ -115,16 +117,18 @@ class VideoEncoder(
                                     onFrame(FrameData(data, frame.isKeyframe, isConfig, frame.timestampUs))
                                 }
                             }
-                        } catch (_: Exception) {
-                            // Um frame com problema não deve matar o dreno nem o processo.
+                        } catch (e: Exception) {
+                            android.util.Log.w("SP-VideoEncoder", "frame #$frameCount falhou", e)
                         }
+                        frameCount++
                         try { c.releaseOutputBuffer(outBuf, false) } catch (_: Exception) {}
                     }
                 }
             }
-        } catch (_: Exception) {
-            // Rede de segurança final: nunca propagar uma exceção deste thread.
+        } catch (e: Exception) {
+            android.util.Log.e("SP-VideoEncoder", "dreno morreu após $frameCount frames", e)
         }
+        android.util.Log.w("SP-VideoEncoder", "dreno parou — total frames produzidos: $frameCount")
     }
 
     fun stop() {

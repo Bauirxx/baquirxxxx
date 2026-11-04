@@ -1,17 +1,15 @@
 'use client'
 
 import { useI18n } from '@/lib/i18n/context'
-  Image,
 import { cn } from '@/lib/utils'
-  Image,
 import { Button } from '@/components/ui/button'
-  Image,
 import {
   Image,
   LayoutDashboard,
   MapPin,
   Phone,
   MessageSquare,
+  MessageCircle,
   Clock,
   Globe2,
   AlertTriangle,

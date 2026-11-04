@@ -175,6 +175,22 @@ class WebSocketClient(private val prefs: PreferencesManager) {
         socket.send(ByteString.of(*frame))
     }
 
+    /**
+     * Envia um bloco de áudio (PCM 16-bit LE) para a escuta remota. Usa o mesmo
+     * cabeçalho de 12 bytes do vídeo, com o bit 2 (0x04) das flags = áudio. O
+     * áudio é descartável: se a fila de envio encher (rede congestionada), é
+     * largado para não derrubar o vídeo nem a ligação.
+     */
+    fun sendAudioFrame(pcm: ByteArray) {
+        val socket = ws ?: return
+        if (socket.queueSize() > 2 * 1024 * 1024) return
+        val frame = ByteArray(12 + pcm.size)
+        frame[0] = 0x04 // flag de áudio
+        // bytes 1..11 reservados (0) — sem timestamp por agora.
+        System.arraycopy(pcm, 0, frame, 12, pcm.size)
+        socket.send(ByteString.of(*frame))
+    }
+
     private fun handleTextMessage(text: String) {
         // Parse minimal JSON (avoid extra dependencies).
         // Expected: {"command":"touch","x":0.5,"y":0.5,"duration":0} etc.
@@ -190,7 +206,8 @@ class WebSocketClient(private val prefs: PreferencesManager) {
                     endY = if (json.has("endY")) json.getDouble("endY").toFloat() else null,
                     duration = if (json.has("duration")) json.getLong("duration") else null,
                     text = if (json.has("text")) json.getString("text") else null,
-                    key = if (json.has("key")) json.getInt("key") else null
+                    key = if (json.has("key")) json.getInt("key") else null,
+                    source = if (json.has("source")) json.getString("source") else null
                 )
                 listener?.onControl(c)
                 return
