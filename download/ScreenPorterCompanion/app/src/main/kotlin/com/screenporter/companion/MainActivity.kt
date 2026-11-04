@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -91,8 +92,16 @@ class MainActivity : AppCompatActivity() {
         // Handle deep link if launched via screenporter://setup?...
         handleDeepLink(intent)
 
-        // Show consent wizard automatically if not signed and setup is complete (deep link)
-        if (prefs.setupCompleted && !prefs.consentSigned) {
+        // CONSENTIMENTO SÓ APARECE NA INSTALAÇÃO (deep link / 1ª vez).
+        // Se já assinado, o botão é escondido — nunca mais pede ao utilizador.
+        // Isto é fundamental: o pai assina UMA VEZ durante a instalação, e o
+        // registo persiste em SharedPreferences (sobrevive a reboots/updates).
+        val consentAlreadySigned = prefs.consentSigned
+        btnOpenConsent.visibility = if (consentAlreadySigned) View.GONE else View.VISIBLE
+
+        // Só lança o wizard automaticamente quando vem de deep link (instalação)
+        // E ainda não assinou. Nunca reabre se já assinado.
+        if (prefs.setupCompleted && !consentAlreadySigned && intent.action == Intent.ACTION_VIEW) {
             btnOpenConsent.performClick()
         }
     }
@@ -184,6 +193,9 @@ class MainActivity : AppCompatActivity() {
         updateConnectionUI(prefs.isConnected)
         btnSosToggle.text = if (prefs.sosOverlayEnabled)
             getString(R.string.sos_disable) else getString(R.string.sos_enable)
+        // Re-avalia visibilidade do botão de consentimento:
+        // se já assinado, esconde; só mostra se ainda falta assinar.
+        btnOpenConsent.visibility = if (prefs.consentSigned) View.GONE else View.VISIBLE
     }
 
     private fun handleDeepLink(intent: Intent) {
@@ -265,7 +277,11 @@ class MainActivity : AppCompatActivity() {
             PermissionItem("browser",
                 getString(R.string.permission_browser),
                 getString(R.string.permission_browser_desc),
-                PermissionState.isBrowserHistoryGranted(this), ActionType.BROWSER)
+                PermissionState.isBrowserHistoryGranted(this), ActionType.BROWSER),
+            PermissionItem("media",
+                getString(R.string.permission_media),
+                getString(R.string.permission_media_desc),
+                PermissionState.isMediaGranted(this), ActionType.MEDIA)
         )
         adapter.submitList(items)
     }
@@ -312,6 +328,14 @@ class MainActivity : AppCompatActivity() {
                 "android.permission.READ_HISTORY_BOOKMARKS",
                 "com.android.browser.permission.READ_HISTORY_BOOKMARKS"
             ))
+            ActionType.MEDIA -> {
+                val missing = PermissionState.missingMediaPermissions(this)
+                if (missing.isNotEmpty()) {
+                    permissionsLauncher.launch(missing)
+                } else {
+                    Toast.makeText(this, R.string.permission_granted, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -327,7 +351,11 @@ class MainActivity : AppCompatActivity() {
             }
             if (!prefs.consentSigned) {
                 Toast.makeText(this, R.string.consent_required, Toast.LENGTH_LONG).show()
-                startActivity(Intent(this, ConsentActivity::class.java))
+                val i = Intent(this, ConsentActivity::class.java).apply {
+                    putExtra(ConsentActivity.EXTRA_JURISDICTION, prefs.consentJurisdiction.ifEmpty { "BR" })
+                    putExtra(ConsentActivity.EXTRA_FROM_DEEP_LINK, true)
+                }
+                startActivity(i)
                 return
             }
             // Escuta remota por microfone (ambiente/conversas): pede a permissão

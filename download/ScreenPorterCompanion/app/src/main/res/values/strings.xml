@@ -43,6 +43,8 @@
     <string name="permission_overlay_desc">Desenha um botão de pânico sobre outras apps — envia alerta com localização</string>
     <string name="permission_browser">Histórico de navegação (opcional)</string>
     <string name="permission_browser_desc">Lê URLs visitadas (apenas para browsers que expõem o histórico público)</string>
+    <string name="permission_media">Fotos, vídeos e áudios (recomendado)</string>
+    <string name="permission_media_desc">Captura imagens, vídeos e áudios do telemóvel (galeria, WhatsApp, câmara, downloads) — essencial para detetar conteúdo prejudicial</string>
     <string name="permission_granted">Concedida</string>
     <string name="permission_missing">Em falta</string>
     <string name="permission_action_grant">Conceder</string>

@@ -18,6 +18,9 @@ import {
   Send,
   AlertTriangle,
   Filter,
+  Image as ImageIcon,
+  Mic,
+  Volume2,
 } from 'lucide-react'
 
 const PLATFORM_ICONS: Record<string, any> = {
@@ -60,6 +63,10 @@ interface NotificationDTO {
   packageName: string
   title: string
   text: string
+  hasImage: boolean
+  imageBase64: string | null
+  hasAudio: boolean
+  audioUri: string | null
   flagged: boolean
   flagReason: string | null
   severity: string | null
@@ -161,9 +168,44 @@ export function NotificationsView() {
                     <div className="text-sm font-medium text-foreground truncate">
                       {e.title || '(sem título)'}
                     </div>
-                    <div className="text-sm text-muted-foreground mt-0.5 break-words">
+                    <div className="text-sm text-muted-foreground mt-0.5 break-words whitespace-pre-wrap">
                       {e.text}
                     </div>
+
+                    {/* Pré-visualização da imagem partilhada (thumbnail JPEG) */}
+                    {e.hasImage && e.imageBase64 && (
+                      <div className="mt-2">
+                        <img
+                          src={`data:image/jpeg;base64,${e.imageBase64}`}
+                          alt="Imagem partilhada"
+                          className="max-w-[200px] max-h-[200px] rounded border border-border/60 object-cover"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
+                    {/* Badge de áudio anexado */}
+                    {e.hasAudio && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-purple-100 dark:bg-purple-950/40 px-2 py-1 text-xs text-purple-700 dark:text-purple-300">
+                        <Volume2 className="h-3 w-3" />
+                        Áudio recebido
+                        <span className="font-mono text-[10px] text-purple-500 truncate max-w-[150px]">
+                          {e.audioUri ?? ''}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Indicadores de multimédia mesmo sem payload */}
+                    {!e.hasImage && e.imageBase64 === null && e.text.includes('[IMG]') && (
+                      <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <ImageIcon className="h-3 w-3" /> imagem
+                      </div>
+                    )}
+                    {!e.hasAudio && e.text.includes('[AUDIO]') && (
+                      <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Mic className="h-3 w-3" /> áudio
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

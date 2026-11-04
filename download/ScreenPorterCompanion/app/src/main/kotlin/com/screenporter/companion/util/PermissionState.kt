@@ -157,6 +157,69 @@ object PermissionState {
     }
 
     // ============================================================
+    // Media (fotos, vídeos, áudios) — Android 13+ dividido em 3 permissões
+    // Android <=12 usa READ_EXTERNAL_STORAGE
+    // ============================================================
+    fun isMediaImagesGranted(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_MEDIA_IMAGES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun isMediaVideoGranted(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_MEDIA_VIDEO
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun isMediaAudioGranted(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_MEDIA_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    /** Verdadeiro se TODAS as permissões de media necessárias estão concedidas. */
+    fun isMediaGranted(context: Context): Boolean {
+        return isMediaImagesGranted(context) &&
+               isMediaVideoGranted(context) &&
+               isMediaAudioGranted(context)
+    }
+
+    /** Lista das permissões runtime de media que faltam conceder (para RequestMultiplePermissions). */
+    fun missingMediaPermissions(context: Context): Array<String> {
+        val list = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (!isMediaImagesGranted(context)) list.add(Manifest.permission.READ_MEDIA_IMAGES)
+            if (!isMediaVideoGranted(context)) list.add(Manifest.permission.READ_MEDIA_VIDEO)
+            if (!isMediaAudioGranted(context)) list.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            if (ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.READ_EXTERNAL_STORAGE
+                ) != PackageManager.PERMISSION_GRANTED
+            ) list.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        return list.toTypedArray()
+    }
+
+    // ============================================================
     // Intent shortcuts to grant special permissions
     // ============================================================
     fun accessibilitySettingsIntent(): Intent =

@@ -145,6 +145,7 @@ export async function POST(req: NextRequest) {
     } else if (type === 'notification') {
       // Notificação capturada via NotificationListenerService (WhatsApp, IG, TikTok, etc.)
       // O texto É o conteúdo visível na notificação no ecrã — não bypass de E2E.
+      // Pode incluir imagem (base64 thumbnail) e/ou URI de áudio.
       saved = await db.notificationEvent.create({
         data: {
           deviceId: device.id,
@@ -152,6 +153,10 @@ export async function POST(req: NextRequest) {
           packageName: String(payload.packageName ?? ''),
           title: String(payload.title ?? ''),
           text: String(payload.text ?? ''),
+          hasImage: Boolean(payload.hasImage ?? false),
+          imageBase64: payload.imageBase64 ?? null,
+          hasAudio: Boolean(payload.hasAudio ?? false),
+          audioUri: payload.audioUri ?? null,
           flagged: Boolean(payload.flagged ?? false),
           flagReason: payload.flagReason ?? null,
           severity: payload.severity ?? null,

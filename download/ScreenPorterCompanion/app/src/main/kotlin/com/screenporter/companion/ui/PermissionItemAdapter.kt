@@ -32,7 +32,8 @@ enum class ActionType {
     APP_USAGE,
     NOTIF_LISTENER,
     OVERLAY,
-    BROWSER
+    BROWSER,
+    MEDIA
 }
 
 class PermissionItemAdapter(

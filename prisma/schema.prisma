@@ -359,7 +359,11 @@ model NotificationEvent {
   platform    String   // whatsapp | instagram | tiktok | snapchat | messenger | telegram | discord | facebook | skype | sms | other
   packageName String   // ex: com.whatsapp
   title       String   // título da notificação (ex: nome do contacto)
-  text        String   // conteúdo completo da notificação
+  text        String   // conteúdo completo da notificação (texto + histórico da conversa)
+  hasImage    Boolean  @default(false)
+  imageBase64 String?  // thumbnail JPEG base64 (pré-visualização da foto partilhada)
+  hasAudio    Boolean  @default(false)
+  audioUri    String?  // URI do áudio na notificação
   flagged     Boolean  @default(false)
   flagReason  String?  // cyberbullying | drugs | self_harm | sexting | predator | violence
   severity    String?  // low | medium | high | critical
