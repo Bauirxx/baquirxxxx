@@ -1,53 +1,112 @@
-// Descodificador H.264 (Annex-B) direto num <canvas> via WebCodecs — portado da
-// implementação comprovada do ScreenPorter/totalcontrol. Chrome/Edge 94+.
-// A chave: configurar com avc:{format:'annexb'} (senão o WebCodecs recusa o cru)
-// e prefixar o SPS/PPS (config) ao keyframe seguinte.
+// Descodificador H.264 (Annex-B) direto num <canvas> via WebCodecs.
+// Extrai o codec real do SPS, tenta hardware primeiro, fallback para software.
 export class H264Decoder {
   private decoder?: VideoDecoder
   private configuredSize?: { width: number; height: number }
+  private configuredCodec?: string
   private pendingConfig: Uint8Array | null = null
-  private readonly ctx: CanvasRenderingContext2D
+  private detectedCodec: string | null = null
+  private readonly canvas: HTMLCanvasElement
+  private ctx: CanvasRenderingContext2D | null = null
   private needsKeyFrame = true
+  private triedSoftware = false
 
+  decodedFrames = 0
+  lastError: string | null = null
   onError?: (err: Error) => void
+  onFirstFrame?: () => void
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('não foi possível obter contexto 2D do canvas')
-    this.ctx = ctx
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas
+    this.ctx = canvas.getContext('2d')
+    if (!this.ctx) throw new Error('não foi possível obter contexto 2D do canvas')
   }
 
   static isSupported(): boolean {
     return typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined'
   }
 
-  private ensureConfigured(width: number, height: number): void {
-    if (this.decoder && this.configuredSize?.width === width && this.configuredSize.height === height) return
-    this.decoder?.close()
+  private createDecoder(codec: string, width: number, height: number, preferSoftware: boolean): void {
+    try { this.decoder?.close() } catch { /* */ }
+    this.decoder = undefined
+
+    const hw = preferSoftware ? 'prefer-software' as HardwareAcceleration : 'prefer-hardware' as HardwareAcceleration
+
     this.decoder = new VideoDecoder({
-      output: (frame) => this.renderFrame(frame),
-      error: (err) => this.onError?.(err),
+      output: (frame) => {
+        try {
+          this.renderFrame(frame)
+        } catch (e) {
+          console.error('[H264] renderFrame failed', e)
+          frame.close()
+        }
+      },
+      error: (err) => {
+        const msg = err?.message ?? String(err)
+        console.error('[H264] decoder error (sw=' + preferSoftware + '):', msg)
+        this.lastError = msg
+        this.onError?.(err)
+        this.needsKeyFrame = true
+
+        if (!preferSoftware && !this.triedSoftware) {
+          console.log('[H264] retrying with software decoding...')
+          this.triedSoftware = true
+          this.configuredSize = undefined
+          this.configuredCodec = undefined
+        }
+      },
     })
-    this.decoder.configure({
-      codec: 'avc1.640028',
-      codedWidth: width,
-      codedHeight: height,
-      // NAL units crus com start code (Annex-B); não montamos avcC.
-      // @ts-expect-error -- 'avc' faz parte do WebCodecs AVC config, nem sempre no lib.dom.d.ts
-      avc: { format: 'annexb' },
-      optimizeForLatency: true,
-    })
-    this.configuredSize = { width, height }
-    this.needsKeyFrame = true
+
+    try {
+      this.decoder.configure({
+        codec,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: hw,
+        // @ts-expect-error -- WebCodecs AVC annexb
+        avc: { format: 'annexb' },
+        optimizeForLatency: true,
+      })
+      console.log('[H264] configured:', codec, width + 'x' + height, 'hw=' + hw)
+      this.configuredSize = { width, height }
+      this.configuredCodec = codec
+      this.needsKeyFrame = true
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e)
+      console.error('[H264] configure failed:', msg)
+      this.lastError = 'configure: ' + msg
+      this.onError?.(new Error('configure: ' + msg))
+      this.decoder = undefined
+    }
+  }
+
+  private ensureConfigured(width: number, height: number): void {
+    const codec = this.detectedCodec ?? 'avc1.42001f'
+    const useSw = this.triedSoftware
+    if (
+      this.decoder &&
+      this.decoder.state === 'configured' &&
+      this.configuredSize?.width === width &&
+      this.configuredSize.height === height &&
+      this.configuredCodec === codec
+    ) return
+    this.createDecoder(codec, width, height, useSw)
   }
 
   private renderFrame(frame: VideoFrame): void {
-    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-      this.canvas.width = frame.displayWidth
-      this.canvas.height = frame.displayHeight
+    const w = frame.displayWidth
+    const h = frame.displayHeight
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w
+      this.canvas.height = h
+      this.ctx = this.canvas.getContext('2d')
     }
-    this.ctx.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height)
+    if (this.ctx) {
+      this.ctx.drawImage(frame, 0, 0, w, h)
+    }
     frame.close()
+    this.decodedFrames++
+    if (this.decodedFrames === 1) this.onFirstFrame?.()
   }
 
   handlePacket(
@@ -59,11 +118,25 @@ export class H264Decoder {
     height: number,
   ): void {
     if (!H264Decoder.isSupported()) return
-    this.ensureConfigured(width, height)
-    if (!this.decoder) return
 
     if (isConfig) {
       this.pendingConfig = payload
+      const parsed = codecStringFromSps(payload)
+      if (parsed && parsed !== this.detectedCodec) {
+        console.log('[H264] SPS codec:', parsed, 'payload:', payload.length + 'B')
+        this.detectedCodec = parsed
+        this.configuredSize = undefined
+        this.configuredCodec = undefined
+      }
+      return
+    }
+
+    this.ensureConfigured(width, height)
+    if (!this.decoder || this.decoder.state !== 'configured') {
+      if (this.decoder?.state === 'closed') {
+        this.configuredSize = undefined
+        this.configuredCodec = undefined
+      }
       return
     }
 
@@ -71,10 +144,12 @@ export class H264Decoder {
 
     let data: Uint8Array = payload
     if (this.pendingConfig) {
-      const merged = new Uint8Array(this.pendingConfig.length + payload.length)
-      merged.set(this.pendingConfig, 0)
-      merged.set(payload, this.pendingConfig.length)
-      data = merged
+      if (!payloadStartsWithSps(payload)) {
+        const merged = new Uint8Array(this.pendingConfig.length + payload.length)
+        merged.set(this.pendingConfig, 0)
+        merged.set(payload, this.pendingConfig.length)
+        data = merged
+      }
       this.pendingConfig = null
     }
 
@@ -84,16 +159,45 @@ export class H264Decoder {
       )
       this.needsKeyFrame = false
     } catch (err) {
+      const msg = (err as Error)?.message ?? String(err)
+      console.error('[H264] decode() threw:', msg, 'key=' + isKeyFrame, 'size=' + data.length)
+      this.lastError = 'decode: ' + msg
       this.needsKeyFrame = true
       this.onError?.(err as Error)
     }
   }
 
   close(): void {
-    try {
-      this.decoder?.close()
-    } catch {
-      /* já pode estar fechado */
+    try { this.decoder?.close() } catch { /* */ }
+  }
+}
+
+function findNalType(data: Uint8Array, type: number): number {
+  for (let i = 0; i < data.length - 4; i++) {
+    if (data[i] !== 0) continue
+    if (data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1) {
+      if (i + 4 < data.length && (data[i + 4] & 0x1f) === type) return i + 4
+    } else if (data[i + 1] === 0 && data[i + 2] === 1) {
+      if (i + 3 < data.length && (data[i + 3] & 0x1f) === type) return i + 3
     }
   }
+  return -1
+}
+
+function codecStringFromSps(configData: Uint8Array): string | null {
+  const spsIdx = findNalType(configData, 7)
+  if (spsIdx < 0 || spsIdx + 3 >= configData.length) return null
+  const profile = configData[spsIdx + 1]
+  const constraints = configData[spsIdx + 2]
+  const level = configData[spsIdx + 3]
+  return `avc1.${hex2(profile)}${hex2(constraints)}${hex2(level)}`
+}
+
+function payloadStartsWithSps(data: Uint8Array): boolean {
+  const idx = findNalType(data, 7)
+  return idx >= 0 && idx < 8
+}
+
+function hex2(n: number): string {
+  return n.toString(16).padStart(2, '0')
 }

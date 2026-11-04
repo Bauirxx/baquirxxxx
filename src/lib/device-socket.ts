@@ -12,8 +12,18 @@ export interface SessionMetaMsg {
   height: number
 }
 
+export interface AudioMetaMsg {
+  t: 'audio_meta'
+  active?: boolean
+  sampleRate?: number
+  channels?: number
+  source?: 'playback' | 'mic'
+}
+
 export type ServerMessage =
   | SessionMetaMsg
+  | AudioMetaMsg
+  | { t: 'audio_error'; message: string }
   | { t: 'error'; message: string }
   | { t: 'closed' }
 
@@ -24,11 +34,18 @@ export interface VideoPacketView {
   payload: Uint8Array
 }
 
+export interface AudioPacketView {
+  // PCM 16-bit little-endian, intercalado por canal se channels>1.
+  payload: Uint8Array
+}
+
 export class DeviceSocket {
   private ws: WebSocket
 
   onMeta?: (meta: SessionMetaMsg) => void
   onVideoPacket?: (packet: VideoPacketView) => void
+  onAudioMeta?: (meta: AudioMetaMsg) => void
+  onAudioPacket?: (packet: AudioPacketView) => void
   onServerMessage?: (msg: ServerMessage) => void
   onOpen?: () => void
   onClose?: () => void
@@ -53,6 +70,7 @@ export class DeviceSocket {
         return
       }
       if (msg.t === 'meta') this.onMeta?.(msg)
+      else if (msg.t === 'audio_meta') this.onAudioMeta?.(msg)
       this.onServerMessage?.(msg)
       return
     }
@@ -63,6 +81,14 @@ export class DeviceSocket {
     const high = view.getUint32(0)
     const low = view.getUint32(4)
     const size = view.getUint32(8)
+
+    // Pacote de AUDIO: marcado com o bit 0x80000000 (que o video nunca liga).
+    if ((high & 0x80000000) !== 0) {
+      const payload = new Uint8Array(buf, 12, Math.min(size, buf.byteLength - 12))
+      this.onAudioPacket?.({ payload })
+      return
+    }
+
     const isConfig = (high & 0x40000000) !== 0
     const isKeyFrame = (high & 0x20000000) !== 0
     const ptsHigh = high & 0x1fffffff
@@ -102,6 +128,16 @@ export class DeviceSocket {
 
   power(): void {
     this.send({ t: 'power' })
+  }
+
+  // Escuta remota: pede a app para comecar/parar a captura de audio.
+  // source = 'playback' (som das apps) | 'mic' (microfone/ambiente).
+  audioStart(source: 'playback' | 'mic'): void {
+    this.send({ t: 'audio', action: 'start', source })
+  }
+
+  audioStop(): void {
+    this.send({ t: 'audio', action: 'stop' })
   }
 
   close(): void {

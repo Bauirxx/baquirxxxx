@@ -139,6 +139,15 @@ object PermissionState {
     }
 
     // ============================================================
+    // Microphone (escuta remota — ambiente/conversas)
+    // ============================================================
+    fun isMicGranted(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // ============================================================
     // Browser history
     // ============================================================
     fun isBrowserHistoryGranted(context: Context): Boolean {

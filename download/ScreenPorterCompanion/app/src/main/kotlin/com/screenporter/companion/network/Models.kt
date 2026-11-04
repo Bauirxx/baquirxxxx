@@ -65,6 +65,8 @@ sealed class WsMessage {
         val endY: Float? = null,
         val duration: Long? = null,
         val text: String? = null,
-        val key: Int? = null
+        val key: Int? = null,
+        // Escuta remota: fonte de áudio pedida ('playback' | 'mic').
+        val source: String? = null
     )
 }
