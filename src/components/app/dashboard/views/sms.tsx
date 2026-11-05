@@ -15,15 +15,18 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { MessageSquare, ArrowDownLeft, ArrowUpRight, AlertTriangle } from 'lucide-react'
 import { useEffect } from 'react'
 import type { SmsEventDTO } from '@/lib/types'
 
 export function SmsView() {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: SmsEventDTO[] }>('/api/dashboard/sms?limit=100', {
-    refreshMs: 30000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: SmsEventDTO[] }>(
+    `/api/dashboard/sms?limit=100${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 30000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

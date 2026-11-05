@@ -3,12 +3,15 @@ import { db } from '@/lib/db'
 import { getUserOr401, json } from '@/lib/api-helpers'
 import type { OverviewStatsDTO } from '@/lib/types'
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const { user, response } = await getUserOr401()
   if (response || !user) return response
 
+  const { searchParams } = new URL(req.url)
+  const deviceIdFilter = searchParams.get('deviceId')
+
   const devices = await db.device.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, ...(deviceIdFilter ? { id: deviceIdFilter } : {}) },
     select: { id: true, status: true },
   })
   const deviceIds = devices.map(d => d.id)

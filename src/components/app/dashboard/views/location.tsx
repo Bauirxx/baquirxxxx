@@ -6,15 +6,18 @@ import { EmptyState } from '../components/empty-state'
 import { MapView } from '../components/map-view'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { MapPin } from 'lucide-react'
 import { useEffect } from 'react'
 import type { LocationEventDTO } from '@/lib/types'
 
 export function LocationView() {
   const { t } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: LocationEventDTO[] }>('/api/dashboard/location?limit=500', {
-    refreshMs: 15000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: LocationEventDTO[] }>(
+    `/api/dashboard/location?limit=500${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 15000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

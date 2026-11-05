@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
+import { useDevice } from '../device-context'
 import { toast } from 'sonner'
 import {
   Clock,
@@ -18,7 +19,7 @@ import {
   Package,
   Settings2,
 } from 'lucide-react'
-import type { AppUsageDTO, InstalledAppDTO, DeviceDTO } from '@/lib/types'
+import type { AppUsageDTO, InstalledAppDTO } from '@/lib/types'
 
 function formatMs(ms: number) {
   const totalMin = Math.floor(ms / 60000)
@@ -37,24 +38,26 @@ function formatBytes(bytes: number) {
 
 export function AppsView() {
   const { t } = useI18n()
-  const { data: usageData, loading: usageLoading, refresh: refreshUsage } = useFetch<{ events: AppUsageDTO[] }>('/api/dashboard/apps', {
-    refreshMs: 30000,
-  })
-  const { data: devicesData } = useFetch<{ devices: DeviceDTO[] }>('/api/dashboard/devices')
+  const { selectedDeviceId, activeDevices, setSelectedDeviceId } = useDevice()
+  const { data: usageData, loading: usageLoading, refresh: refreshUsage } = useFetch<{ events: AppUsageDTO[] }>(
+    `/api/dashboard/apps${selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 30000, deps: [selectedDeviceId] }
+  )
+  // AppsView já tinha o seu próprio seletor de dispositivo para apps instaladas.
+  // Agora usa o contexto global — todas as views partilham o mesmo dispositivo.
 
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [installTargets, setInstallTargets] = useState<Set<string>>(new Set())
   const [installing, setInstalling] = useState(false)
   const [apkName, setApkName] = useState('')
 
-  const devices = devicesData?.devices ?? []
-  const activeDevices = devices.filter(d => d.status !== 'revoked')
+  const devices = activeDevices
+  const activeDevicesLocal = activeDevices
 
   useEffect(() => {
-    if (!selectedDeviceId && activeDevices.length > 0) {
-      setSelectedDeviceId(activeDevices[0].id)
+    if (!selectedDeviceId && activeDevicesLocal.length > 0) {
+      setSelectedDeviceId(activeDevicesLocal[0].id)
     }
-  }, [activeDevices, selectedDeviceId])
+  }, [activeDevicesLocal, selectedDeviceId, setSelectedDeviceId])
 
   // Fetch installed apps when device changes
   const { data: installedData, loading: installedLoading, refresh: refreshInstalled } = useFetch<{ apps: InstalledAppDTO[] }>(

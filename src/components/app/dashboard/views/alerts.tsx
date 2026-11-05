@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { toast } from 'sonner'
 import { AlertTriangle, Check, ShieldAlert } from 'lucide-react'
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
@@ -26,9 +27,11 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 export function AlertsView({ onAlertsChange }: AlertsViewProps) {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: SocialAlertDTO[] }>('/api/dashboard/alerts?limit=100', {
-    refreshMs: 15000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: SocialAlertDTO[] }>(
+    `/api/dashboard/alerts?limit=100${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 15000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

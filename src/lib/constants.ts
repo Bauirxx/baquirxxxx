@@ -80,6 +80,26 @@ export const ALERT_CATEGORIES = ['cyberbullying', 'sexting', 'drugs', 'violence'
 export const ALERT_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const
 export const BROWSER_CATEGORIES = ['social', 'news', 'adult', 'games', 'education', 'shopping', 'other'] as const
 
+// Lista de apps Android comuns — usada pela rota dev/inject-mock para gerar
+// dados de exemplo de apps instaladas.
+export const COMMON_ANDROID_APPS: { packageName: string; appName: string; category: string }[] = [
+  { packageName: 'com.whatsapp', appName: 'WhatsApp', category: 'social' },
+  { packageName: 'com.instagram.android', appName: 'Instagram', category: 'social' },
+  { packageName: 'com.zhiliaoapp.musically', appName: 'TikTok', category: 'social' },
+  { packageName: 'com.snapchat.android', appName: 'Snapchat', category: 'social' },
+  { packageName: 'com.facebook.katana', appName: 'Facebook', category: 'social' },
+  { packageName: 'com.facebook.orca', appName: 'Messenger', category: 'social' },
+  { packageName: 'com.google.android.youtube', appName: 'YouTube', category: 'video' },
+  { packageName: 'com.netflix.mediaclient', appName: 'Netflix', category: 'video' },
+  { packageName: 'com.spotify.music', appName: 'Spotify', category: 'music' },
+  { packageName: 'com.android.chrome', appName: 'Chrome', category: 'browser' },
+  { packageName: 'com.google.android.gm', appName: 'Gmail', category: 'communication' },
+  { packageName: 'com.google.android.apps.maps', appName: 'Maps', category: 'utility' },
+  { packageName: 'com.android.settings', appName: 'Settings', category: 'system' },
+  { packageName: 'com.android.camera', appName: 'Camera', category: 'photo' },
+  { packageName: 'com.google.android.googlequicksearchbox', appName: 'Google', category: 'utility' },
+]
+
 // ============================================================
 // ScreenPorter — constantes
 // ============================================================

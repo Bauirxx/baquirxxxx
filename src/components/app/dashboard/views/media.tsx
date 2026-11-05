@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
+import { useDevice } from '../device-context'
 import {
   Image as ImageIcon,
   Video,
@@ -52,10 +53,11 @@ export function MediaView() {
   const { t, locale } = useI18n()
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [flaggedOnly, setFlaggedOnly] = useState(false)
+  const { selectedDeviceId, activeDevices } = useDevice()
 
   const { data, loading } = useFetch<{ media: MediaDTO[] }>(
-    `/api/dashboard/media?limit=200${selectedType ? `&type=${selectedType}` : ''}${flaggedOnly ? '&flagged=true' : ''}`,
-    { refreshMs: 30000, deps: [selectedType, flaggedOnly] }
+    `/api/dashboard/media?limit=200${selectedType ? `&type=${selectedType}` : ''}${flaggedOnly ? '&flagged=true' : ''}${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 30000, deps: [selectedType, flaggedOnly, selectedDeviceId] }
   )
 
   const media = data?.media ?? []
@@ -69,11 +71,14 @@ export function MediaView() {
   }
 
   if (media.length === 0) {
+    const deviceLabel = selectedDeviceId
+      ? (activeDevices.find(d => d.id === selectedDeviceId)?.childName ?? activeDevices.find(d => d.id === selectedDeviceId)?.name ?? 'este dispositivo')
+      : 'todos os dispositivos'
     return (
       <EmptyState
         icon={ImageIcon}
         title="Sem ficheiros de mídia"
-        body="Fotos, vídeos e áudios do telemóvel aparecem aqui quando a app Companion estiver ativa com permissão de armazenamento."
+        body={`A mostrar dados de ${deviceLabel}. Fotos, vídeos e áudios do telemóvel aparecem aqui quando a app Companion estiver ativa com permissão de armazenamento.`}
       />
     )
   }

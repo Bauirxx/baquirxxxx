@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react'
 import { useEffect } from 'react'
 import type { CallEventDTO } from '@/lib/types'
@@ -27,9 +28,11 @@ function formatDuration(seconds: number) {
 
 export function CallsView() {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: CallEventDTO[] }>('/api/dashboard/calls?limit=100', {
-    refreshMs: 30000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: CallEventDTO[] }>(
+    `/api/dashboard/calls?limit=100${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 30000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { toast } from 'sonner'
 import { Siren, Check } from 'lucide-react'
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
@@ -19,9 +20,11 @@ interface SosViewProps {
 
 export function SosView({ onSosChange }: SosViewProps) {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: SosEventDTO[] }>('/api/dashboard/sos', {
-    refreshMs: 15000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: SosEventDTO[] }>(
+    `/api/dashboard/sos${selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 15000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

@@ -5,6 +5,7 @@ import { StatCard } from '../components/stat-card'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Smartphone, Activity, AlertTriangle, Siren, Phone, MessageSquare, Clock, MapPin, MonitorPlay, RefreshCw, Package } from 'lucide-react'
@@ -29,9 +30,11 @@ function formatMs(ms: number) {
 
 export function OverviewView({ user, onViewChange, onAlertsChange, onSosChange }: OverviewProps) {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<OverviewStatsDTO>('/api/dashboard/overview', {
-    refreshMs: 15000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<OverviewStatsDTO>(
+    `/api/dashboard/overview${selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 15000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { useEffect } from 'react'
 import {
   MessageCircle,
@@ -77,10 +78,11 @@ export function NotificationsView() {
   const { t, locale } = useI18n()
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const { selectedDeviceId, activeDevices } = useDevice()
 
   const { data, loading, refresh } = useFetch<{ events: NotificationDTO[] }>(
-    `/api/dashboard/notifications?limit=200${flaggedOnly ? '&flagged=true' : ''}${selectedPlatform ? `&platform=${selectedPlatform}` : ''}`,
-    { refreshMs: 15000, deps: [flaggedOnly, selectedPlatform] }
+    `/api/dashboard/notifications?limit=200${flaggedOnly ? '&flagged=true' : ''}${selectedPlatform ? `&platform=${selectedPlatform}` : ''}${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 15000, deps: [flaggedOnly, selectedPlatform, selectedDeviceId] }
   )
   const { events: rtEvents } = useRealtime()
 
@@ -102,11 +104,14 @@ export function NotificationsView() {
   }
 
   if (events.length === 0) {
+    const deviceLabel = selectedDeviceId
+      ? (activeDevices.find(d => d.id === selectedDeviceId)?.childName ?? activeDevices.find(d => d.id === selectedDeviceId)?.name ?? 'este dispositivo')
+      : 'todos os dispositivos'
     return (
       <EmptyState
         icon={MessageCircle}
         title="Sem notificações capturadas"
-        body="As notificações de WhatsApp, Instagram, TikTok, etc. aparecem aqui quando a app Companion estiver ativa com permissão de Notification Listener."
+        body={`A mostrar dados de ${deviceLabel}. As notificações de WhatsApp, Instagram, TikTok, etc. aparecem aqui quando a app Companion estiver ativa com permissão de Notification Listener.`}
       />
     )
   }

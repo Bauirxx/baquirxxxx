@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { DeviceSelector } from './device-selector'
 import type { DashboardView } from '@/lib/types'
 
 interface TopbarProps {
@@ -60,6 +61,11 @@ export function Topbar({ userName, userEmail, onLogout, onLocaleChange, currentV
               {t('rt.disconnected')}
             </span>
           )}
+        </div>
+
+        {/* Device selector — separa os dados por telemóvel */}
+        <div className="flex items-center">
+          <DeviceSelector />
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">

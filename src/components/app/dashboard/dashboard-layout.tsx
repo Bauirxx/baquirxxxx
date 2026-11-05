@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n/context'
 import { Sidebar, MobileBottomNav } from './sidebar'
 import { Topbar } from './topbar'
 import { RealtimeProvider } from './realtime-provider'
+import { DeviceProvider } from './device-context'
 import { OverviewView } from './views/overview'
 import { LocationView } from './views/location'
 import { CallsView } from './views/calls'
@@ -47,23 +48,24 @@ export function DashboardLayout({ user, currentView, onViewChange, onLogout, onL
 
   return (
     <RealtimeProvider userId={user.id}>
-      <div className="min-h-screen flex bg-background">
-        <Sidebar
-          currentView={currentView}
-          onViewChange={onViewChange}
-          onLogout={onLogout}
-          userName={user.name}
-          activeAlerts={totalActive}
-        />
-        <div className="flex-1 flex flex-col min-w-0">
-          <Topbar
-            userName={user.name}
-            userEmail={user.email}
-            onLogout={onLogout}
-            onLocaleChange={onLocaleChange}
+      <DeviceProvider userId={user.id}>
+        <div className="min-h-screen flex bg-background">
+          <Sidebar
             currentView={currentView}
             onViewChange={onViewChange}
+            onLogout={onLogout}
+            userName={user.name}
+            activeAlerts={totalActive}
           />
+          <div className="flex-1 flex flex-col min-w-0">
+            <Topbar
+              userName={user.name}
+              userEmail={user.email}
+              onLogout={onLogout}
+              onLocaleChange={onLocaleChange}
+              currentView={currentView}
+              onViewChange={onViewChange}
+            />
           <main className="flex-1 overflow-y-auto scrollbar-thin pb-20 md:pb-8">
             <div className="container mx-auto px-4 py-6 sm:py-8 max-w-7xl">
               <div className="mb-6">
@@ -121,7 +123,8 @@ export function DashboardLayout({ user, currentView, onViewChange, onLogout, onL
           </main>
         </div>
         <MobileBottomNav currentView={currentView} onViewChange={onViewChange} activeAlerts={activeAlerts} />
-      </div>
+        </div>
+      </DeviceProvider>
     </RealtimeProvider>
   )
 }

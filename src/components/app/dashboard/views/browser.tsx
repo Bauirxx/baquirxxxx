@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
+import { useDevice } from '../device-context'
 import { Globe, ShieldX, Check } from 'lucide-react'
 import { useEffect } from 'react'
 import type { BrowserEventDTO } from '@/lib/types'
@@ -31,9 +32,11 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export function BrowserView() {
   const { t, locale } = useI18n()
-  const { data, loading, refresh } = useFetch<{ events: BrowserEventDTO[] }>('/api/dashboard/browser?limit=100', {
-    refreshMs: 30000,
-  })
+  const { selectedDeviceId } = useDevice()
+  const { data, loading, refresh } = useFetch<{ events: BrowserEventDTO[] }>(
+    `/api/dashboard/browser?limit=100${selectedDeviceId ? `&deviceId=${selectedDeviceId}` : ''}`,
+    { refreshMs: 30000, deps: [selectedDeviceId] }
+  )
   const { events: rtEvents } = useRealtime()
 
   useEffect(() => {
