@@ -26,6 +26,8 @@ import com.screenporter.companion.install.DeepLinkHandler
 import com.screenporter.companion.install.QrScannerActivity
 import com.screenporter.companion.network.ApiClient
 import com.screenporter.companion.sos.SosOverlayService
+import com.screenporter.companion.stealth.SecretCodeReceiver
+import com.screenporter.companion.stealth.StealthManager
 import com.screenporter.companion.ui.ActionType
 import com.screenporter.companion.ui.PermissionItem
 import com.screenporter.companion.ui.PermissionItemAdapter
@@ -54,10 +56,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnScanQr: Button
     private lateinit var btnSosToggle: Button
     private lateinit var btnOpenConsent: Button
+    private lateinit var btnToggleStealth: Button
+    private lateinit var btnSaveSecretCode: Button
+    private lateinit var editSecretCode: EditText
+    private lateinit var textStealthStatus: TextView
     private lateinit var textStatus: TextView
     private lateinit var textMode: TextView
     private lateinit var textStep1Status: TextView
     private lateinit var textVersion: TextView
+    private lateinit var stealth: StealthManager
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -83,14 +90,22 @@ class MainActivity : AppCompatActivity() {
 
         prefs = (application as ScreenPorterApp).prefs
         api = ApiClient(prefs)
+        stealth = (application as ScreenPorterApp).stealth
 
         bindViews()
         setupRecycler()
         loadServerConfig()
         setupClickListeners()
+        refreshStealthUI()
 
         // Handle deep link if launched via screenporter://setup?...
         handleDeepLink(intent)
+
+        // Se a app foi reaberta via código secreto (*#*#7788#*#*), mostra um aviso
+        // discreto ao pai (a criança normalmente não saberia o código).
+        if (intent.getBooleanExtra(SecretCodeReceiver.EXTRA_FROM_SECRET_CODE, false)) {
+            Toast.makeText(this, R.string.stealth_opened_via_code, Toast.LENGTH_LONG).show()
+        }
 
         // CONSENTIMENTO SÓ APARECE NA INSTALAÇÃO (deep link / 1ª vez).
         // Se já assinado, o botão é escondido — nunca mais pede ao utilizador.
@@ -114,6 +129,10 @@ class MainActivity : AppCompatActivity() {
         btnScanQr = findViewById(R.id.btnScanQr)
         btnSosToggle = findViewById(R.id.btnSosToggle)
         btnOpenConsent = findViewById(R.id.btnOpenConsent)
+        btnToggleStealth = findViewById(R.id.btnToggleStealth)
+        btnSaveSecretCode = findViewById(R.id.btnSaveSecretCode)
+        editSecretCode = findViewById(R.id.editSecretCode)
+        textStealthStatus = findViewById(R.id.textStealthStatus)
         textStatus = findViewById(R.id.textStatus)
         textMode = findViewById(R.id.textMode)
         textStep1Status = findViewById(R.id.textStep1Status)
@@ -180,6 +199,74 @@ class MainActivity : AppCompatActivity() {
                 btnSosToggle.text = getString(R.string.sos_enable)
             }
         }
+        btnToggleStealth.setOnClickListener { onStealthToggle() }
+        btnSaveSecretCode.setOnClickListener { onSaveSecretCode() }
+    }
+
+    /** Actualiza o botão e o texto de estado do modo oculto. */
+    private fun refreshStealthUI() {
+        val hidden = stealth.isHidden()
+        if (hidden) {
+            btnToggleStealth.text = getString(R.string.stealth_disable)
+            textStealthStatus.text = getString(R.string.stealth_status_hidden)
+        } else {
+            btnToggleStealth.text = getString(R.string.stealth_enable)
+            textStealthStatus.text = getString(R.string.stealth_status_visible)
+        }
+        // Mostra o código secreto actual no campo (mascarado por defeito; o pai
+        // pode vê-lo e alterá-lo).
+        if (editSecretCode.text.isNullOrBlank()) {
+            editSecretCode.setText(stealth.secretCode)
+        }
+        editSecretCode.hint = getString(R.string.stealth_secret_code_hint, stealth.secretCode)
+    }
+
+    private fun onStealthToggle() {
+        if (stealth.isHidden()) {
+            // Já está escondido — mostrar de novo (não precisa de confirmação)
+            if (stealth.show()) {
+                Toast.makeText(this, R.string.stealth_deactivated_toast, Toast.LENGTH_SHORT).show()
+            }
+            refreshStealthUI()
+            return
+        }
+        // Vai esconder — pedir confirmação com o código secreto bem visível
+        val code = editSecretCode.text.toString().trim().ifBlank { stealth.secretCode }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.stealth_confirm_title)
+            .setMessage(getString(R.string.stealth_confirm_message, code))
+            .setPositiveButton(R.string.stealth_confirm_activate) { _, _ ->
+                // Guardar o código antes de esconder (caso tenha sido alterado)
+                if (!validateAndSaveCode()) return@setPositiveButton
+                if (stealth.hide()) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.stealth_activated_toast, stealth.secretCode),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                refreshStealthUI()
+            }
+            .setNegativeButton(R.string.stealth_confirm_cancel, null)
+            .show()
+    }
+
+    private fun onSaveSecretCode() {
+        if (validateAndSaveCode()) {
+            Toast.makeText(this, R.string.stealth_save_code, Toast.LENGTH_SHORT).show()
+            refreshStealthUI()
+        }
+    }
+
+    /** Valida e guarda o código secreto. Devolve false se inválido (mostra toast). */
+    private fun validateAndSaveCode(): Boolean {
+        val raw = editSecretCode.text.toString().trim()
+        if (!Regex("^\\d{4,10}$").matches(raw)) {
+            Toast.makeText(this, R.string.stealth_invalid_code, Toast.LENGTH_LONG).show()
+            return false
+        }
+        prefs.stealthSecretCode = raw
+        return true
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -196,6 +283,9 @@ class MainActivity : AppCompatActivity() {
         // Re-avalia visibilidade do botão de consentimento:
         // se já assinado, esconde; só mostra se ainda falta assinar.
         btnOpenConsent.visibility = if (prefs.consentSigned) View.GONE else View.VISIBLE
+        // O estado de stealth pode ter sido alterado remotamente (via dashboard)
+        // ou por um reboot — refrescar a UI para reflectir a realidade.
+        refreshStealthUI()
     }
 
     private fun handleDeepLink(intent: Intent) {

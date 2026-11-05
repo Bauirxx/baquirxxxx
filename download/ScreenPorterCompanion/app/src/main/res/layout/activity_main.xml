@@ -411,6 +411,91 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Step 5: Stealth mode (esconder ícone) -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/ScreenPorter.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/spacing_xl">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size_md"
+                        android:layout_height="@dimen/icon_size_md"
+                        android:src="@drawable/ic_eye_off"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/spacing_md"
+                        android:text="@string/stealth_section_title"
+                        android:textAppearance="@style/ScreenPorter.TextAppearance.Title"
+                        android:textSize="@dimen/text_subtitle" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_xs"
+                    android:text="@string/stealth_section_desc"
+                    android:textAppearance="@style/ScreenPorter.TextAppearance.Body" />
+
+                <TextView
+                    android:id="@+id/textStealthStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_sm"
+                    android:text="@string/stealth_status_visible"
+                    android:textAppearance="@style/ScreenPorter.TextAppearance.Body"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_sm"
+                    android:text="@string/stealth_secret_code_label"
+                    android:textAppearance="@style/ScreenPorter.TextAppearance.Caption" />
+
+                <EditText
+                    android:id="@+id/editSecretCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:maxLength="10"
+                    android:hint="@string/stealth_secret_code_hint"
+                    android:autofillHints="off"
+                    tools:ignore="Labelled" />
+
+                <Button
+                    android:id="@+id/btnSaveSecretCode"
+                    style="@style/ScreenPorter.Button.Outline"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_sm"
+                    android:text="@string/stealth_save_code" />
+
+                <Button
+                    android:id="@+id/btnToggleStealth"
+                    style="@style/ScreenPorter.Button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_sm"
+                    android:text="@string/stealth_enable" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Footer -->
         <TextView
             android:layout_width="match_parent"

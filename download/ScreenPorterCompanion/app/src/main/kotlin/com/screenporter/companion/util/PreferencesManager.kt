@@ -94,6 +94,21 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_LAST_CRASH, null)
         set(value) = prefs.edit { putString(KEY_LAST_CRASH, value) }
 
+    // ============================================================
+    // MODO OCULTO (Stealth) — GuardianLink
+    //
+    // Quando activado, o ícone da app desaparece do launcher (gaveta + ecrã
+    // inicial). A app continua a correr em background. Para reabrir, o pai
+    // marca o código secreto no dialer: *#*#<stealthSecretCode>#*#*
+    // ============================================================
+    var stealthEnabled: Boolean
+        get() = prefs.getBoolean(KEY_STEALTH_ENABLED, false)
+        set(value) = prefs.edit { putBoolean(KEY_STEALTH_ENABLED, value) }
+
+    var stealthSecretCode: String
+        get() = prefs.getString(KEY_STEALTH_SECRET_CODE, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_STEALTH_SECRET_CODE, value) }
+
     companion object {
         private const val PREFS_NAME = "screenporter_prefs"
         private const val KEY_SERVER_ADDRESS = "server_address"
@@ -111,5 +126,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_SOS_OVERLAY = "sos_overlay"
         private const val KEY_SETUP_COMPLETED = "setup_completed"
         private const val KEY_LAST_CRASH = "last_crash"
+        private const val KEY_STEALTH_ENABLED = "stealth_enabled"
+        private const val KEY_STEALTH_SECRET_CODE = "stealth_secret_code"
     }
 }

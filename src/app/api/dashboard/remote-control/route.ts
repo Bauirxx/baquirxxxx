@@ -7,7 +7,7 @@ import type { RemoteCommandType } from '@/lib/types'
 
 const schema = z.object({
   deviceId: z.string(),
-  command: z.enum(['touch', 'key', 'text', 'back', 'home', 'recents', 'power', 'volume_up', 'volume_down', 'open_app', 'reboot']),
+  command: z.enum(['touch', 'key', 'text', 'back', 'home', 'recents', 'power', 'volume_up', 'volume_down', 'open_app', 'reboot', 'stealth_on', 'stealth_off']),
   payload: z.record(z.any()).optional(),
 })
 

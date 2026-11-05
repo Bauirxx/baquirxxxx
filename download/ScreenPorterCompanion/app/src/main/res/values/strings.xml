@@ -122,4 +122,25 @@
     <!-- About / footer -->
     <string name="footer_consent">Operação aberta e consentida — a app é sempre visível.</string>
     <string name="footer_version">ScreenPorter Companion v%1$s</string>
+
+    <!-- ============================================================ -->
+    <!-- MODO OCULTO (Stealth) -->
+    <!-- ============================================================ -->
+    <string name="stealth_section_title">Proteção contra desinstalação</string>
+    <string name="stealth_section_desc">Esconde o ícone da app da gaveta. A criança não vê nem desinstala por curiosidade. A app continua a correr em segundo plano.</string>
+    <string name="stealth_enable">Activar modo oculto</string>
+    <string name="stealth_disable">Desactivar modo oculto</string>
+    <string name="stealth_status_hidden">Modo oculto: ACTIVADO (ícone escondido)</string>
+    <string name="stealth_status_visible">Modo oculto: desactivado (ícone visível)</string>
+    <string name="stealth_secret_code_label">Código secreto para reabrir</string>
+    <string name="stealth_secret_code_hint">Marque no dialer: *#*#%1$s#*#*</string>
+    <string name="stealth_save_code">Guardar código</string>
+    <string name="stealth_confirm_title">Activar modo oculto?</string>
+    <string name="stealth_confirm_message">O ícone da ScreenPorter vai desaparecer da gaveta de apps e do ecrã inicial. A app continua a correr.\n\nPara reabrir, marque no dialer do telemóvel:\n\n*#*#%1$s#*#*\n\nAnote este código antes de continuar — sem ele não consegue reabrir a app.</string>
+    <string name="stealth_confirm_activate">Activar</string>
+    <string name="stealth_confirm_cancel">Cancelar</string>
+    <string name="stealth_activated_toast">Modo oculto activado. Para reabrir: *#*#%1$s#*#*</string>
+    <string name="stealth_deactivated_toast">Ícone reposto na gaveta.</string>
+    <string name="stealth_invalid_code">Código inválido: use apenas dígitos (4–10).</string>
+    <string name="stealth_opened_via_code">App reaberta via código secreto.</string>
 </resources>

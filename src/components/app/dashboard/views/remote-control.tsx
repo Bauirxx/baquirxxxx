@@ -26,6 +26,8 @@ import {
   RotateCcw,
   ChevronUp,
   ChevronDown,
+  EyeOff,
+  Eye,
 } from 'lucide-react'
 import type { DeviceDTO, DashboardView, RemoteCommandType } from '@/lib/types'
 
@@ -159,6 +161,11 @@ export function RemoteControlView({ onViewChange }: RemoteControlViewProps) {
               <NavButton icon={Volume2} label={t('control.volume.up')} onClick={() => sendCommand('volume_up')} disabled={sending === 'volume_up'} />
               <NavButton icon={VolumeX} label={t('control.volume.down')} onClick={() => sendCommand('volume_down')} disabled={sending === 'volume_down'} />
               <NavButton icon={RotateCcw} label={t('control.reboot')} onClick={() => sendCommand('reboot')} disabled={sending === 'reboot'} danger />
+            </div>
+            {/* Stealth — esconder / mostrar ícone da app no telemóvel da criança */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40 mt-2">
+              <NavButton icon={EyeOff} label={t('control.stealth.on')} onClick={() => sendCommand('stealth_on')} disabled={sending === 'stealth_on'} />
+              <NavButton icon={Eye} label={t('control.stealth.off')} onClick={() => sendCommand('stealth_off')} disabled={sending === 'stealth_off'} />
             </div>
           </CardContent>
         </Card>

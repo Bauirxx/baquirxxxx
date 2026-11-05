@@ -1,6 +1,7 @@
 package com.screenporter.companion
 
 import android.app.Application
+import com.screenporter.companion.stealth.StealthManager
 import com.screenporter.companion.util.PreferencesManager
 
 class ScreenPorterApp : Application() {
@@ -9,9 +10,16 @@ class ScreenPorterApp : Application() {
     lateinit var prefs: PreferencesManager
         private set
 
+    // StealthManager — centralizado na Application para ser acessível a
+    // activities, services e receivers (BootReceiver pode re-aplicar o estado
+    // oculto após reboot se necessário).
+    lateinit var stealth: StealthManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         prefs = PreferencesManager(this)
+        stealth = StealthManager(this, prefs)
 
         // Diagnóstico: guarda o stack de qualquer exceção não-tratada (de qualquer
         // thread) antes de o Android matar o processo. O WebSocketClient envia-o

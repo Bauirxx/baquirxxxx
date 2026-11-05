@@ -4,7 +4,7 @@ export type Locale = 'pt-BR' | 'en'
 export type DeviceStatus = 'pending' | 'active' | 'offline' | 'revoked'
 export type ConnectionType = 'usb' | 'wifi' | 'tailscale' | 'companion'
 export type SyncMode = 'rigid' | 'adaptive' | 'independent'
-export type RemoteCommandType = 'touch' | 'key' | 'text' | 'back' | 'home' | 'recents' | 'power' | 'volume_up' | 'volume_down' | 'open_app' | 'reboot'
+export type RemoteCommandType = 'touch' | 'key' | 'text' | 'back' | 'home' | 'recents' | 'power' | 'volume_up' | 'volume_down' | 'open_app' | 'reboot' | 'stealth_on' | 'stealth_off'
 
 export type DashboardView =
   | 'overview'
