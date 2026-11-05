@@ -121,11 +121,86 @@
     @apply bg-background text-foreground;
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    /* Profundidade subtil no fundo da app — dá sensação de camada sem distrair */
+    background-image:
+      radial-gradient(oklch(0.68 0.18 42 / 0.025) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+  }
+  .dark body {
+    background-image:
+      radial-gradient(oklch(0.72 0.18 42 / 0.04) 1px, transparent 1px);
   }
   h1, h2, h3, h4, .font-serif-display {
     font-family: var(--font-serif);
     letter-spacing: -0.018em;
     font-weight: 600;
+  }
+}
+
+/* ============================================================
+   SISTEMA DE ELEVAÇÃO — sombras refinadas para cards profissionais
+   ============================================================ */
+@layer utilities {
+  .shadow-soft {
+    box-shadow:
+      0 1px 2px 0 oklch(0.18 0.01 50 / 0.04),
+      0 1px 3px 0 oklch(0.18 0.01 50 / 0.06);
+  }
+  .shadow-card {
+    box-shadow:
+      0 1px 2px 0 oklch(0.18 0.01 50 / 0.05),
+      0 4px 12px -2px oklch(0.18 0.01 50 / 0.06);
+  }
+  .shadow-pop {
+    box-shadow:
+      0 4px 8px -2px oklch(0.18 0.01 50 / 0.08),
+      0 12px 28px -4px oklch(0.18 0.01 50 / 0.12);
+  }
+  .dark .shadow-soft {
+    box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.3);
+  }
+  .dark .shadow-card {
+    box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.4), 0 4px 12px -2px oklch(0 0 0 / 0.35);
+  }
+  .dark .shadow-pop {
+    box-shadow: 0 4px 8px -2px oklch(0 0 0 / 0.5), 0 12px 28px -4px oklch(0 0 0 / 0.55);
+  }
+
+  /* Gradiente subtil para cabeçalhos de secção e cards de destaque */
+  .bg-surface-gradient {
+    background-image: linear-gradient(180deg, oklch(1 0 0 / 0.6) 0%, oklch(1 0 0 / 0) 60%);
+  }
+  .dark .bg-surface-gradient {
+    background-image: linear-gradient(180deg, oklch(1 0 0 / 0.03) 0%, oklch(1 0 0 / 0) 60%);
+  }
+
+  /* Linha de acento à esquerda para itens ativos/sinalizados */
+  .accent-bar-l {
+    position: relative;
+  }
+  .accent-bar-l::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 8px; bottom: 8px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: var(--primary);
+  }
+
+  /* Galeria — overlay hover */
+  .gallery-item .gallery-overlay {
+    opacity: 0;
+    transition: opacity 0.18s ease-out;
+  }
+  .gallery-item:hover .gallery-overlay {
+    opacity: 1;
+  }
+  .gallery-item img {
+    transition: transform 0.3s ease-out;
+  }
+  .gallery-item:hover img {
+    transform: scale(1.04);
   }
 }
 

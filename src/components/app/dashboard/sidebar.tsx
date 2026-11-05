@@ -79,17 +79,20 @@ export function Sidebar({ currentView, onViewChange, onLogout, userName, activeA
 
   return (
     <aside className="hidden md:flex flex-col w-60 border-r border-border/60 bg-sidebar text-sidebar-foreground h-screen sticky top-0">
-      <div className="h-16 flex items-center gap-2 px-4 border-b border-border/40">
-        <div className="h-7 w-7 rounded-md bg-sidebar-primary flex items-center justify-center">
+      <div className="h-16 flex items-center gap-2.5 px-4 border-b border-border/40">
+        <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center shadow-soft">
           <ShieldCheck className="h-4 w-4 text-sidebar-primary-foreground" />
         </div>
-        <span className="font-serif-display text-lg">{t('brand.name')}</span>
+        <div className="flex flex-col leading-none">
+          <span className="font-serif-display text-lg tracking-tight">{t('brand.name')}</span>
+          <span className="text-[10px] text-muted-foreground/80 font-medium tracking-wide uppercase mt-0.5">GuardianLink</span>
+        </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-4">
+      <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-2.5 space-y-5">
         {NAV_GROUPS.map(group => (
-          <div key={group.groupKey} className="space-y-1">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 px-3 pb-1">
+          <div key={group.groupKey} className="space-y-0.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60 px-3 pb-2">
               {t(group.groupKey)}
             </div>
             {group.items.map(item => {
@@ -101,16 +104,19 @@ export function Sidebar({ currentView, onViewChange, onLogout, userName, activeA
                   key={item.key}
                   onClick={() => onViewChange(item.key)}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors text-left',
+                    'group w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-left relative',
                     isActive
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-soft'
                       : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  {isActive && (
+                    <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-sidebar-primary" />
+                  )}
+                  <Icon className={cn('h-4 w-4 shrink-0 transition-transform', isActive ? 'text-sidebar-primary' : 'group-hover:scale-110')} />
                   <span className="flex-1 truncate">{t(`sidebar.${item.key}`)}</span>
                   {badge > 0 && (
-                    <span className="ml-auto inline-flex h-4 min-w-4 px-1 items-center justify-center text-[10px] font-bold rounded-full bg-destructive text-destructive-foreground">
+                    <span className="ml-auto inline-flex h-5 min-w-5 px-1.5 items-center justify-center text-[10px] font-bold rounded-full bg-destructive text-destructive-foreground shadow-soft">
                       {badge}
                     </span>
                   )}
@@ -121,9 +127,15 @@ export function Sidebar({ currentView, onViewChange, onLogout, userName, activeA
         ))}
       </nav>
 
-      <div className="border-t border-border/40 p-3 space-y-2">
-        <div className="text-xs text-muted-foreground px-1">
-          {t('dashboard.welcome', { name: userName })}
+      <div className="border-t border-border/40 p-3 space-y-2.5">
+        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-sidebar-accent/40">
+          <div className="h-8 w-8 rounded-full bg-sidebar-primary/15 flex items-center justify-center text-xs font-bold text-sidebar-primary shrink-0">
+            {userName.slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium text-sidebar-foreground truncate">{userName}</div>
+            <div className="text-[10px] text-muted-foreground truncate">{t('dashboard.welcome', { name: '' }).replace(/[, ]+$/, '')}</div>
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -152,7 +164,7 @@ export function MobileBottomNav({
   const { t } = useI18n()
   const items: NavItem[] = NAV_GROUPS[0].items.concat(NAV_GROUPS[1].items)
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-border/60 bg-background/95 backdrop-blur grid grid-cols-5 h-16">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-border/60 bg-background/95 backdrop-blur-md grid grid-cols-5 h-16 safe-area-bottom">
       {items.slice(0, 5).map(item => {
         const Icon = item.icon
         const isActive = currentView === item.key
@@ -162,14 +174,15 @@ export function MobileBottomNav({
             key={item.key}
             onClick={() => onViewChange(item.key)}
             className={cn(
-              'flex flex-col items-center justify-center gap-0.5 text-[10px] relative',
+              'flex flex-col items-center justify-center gap-0.5 text-[10px] relative transition-colors',
               isActive ? 'text-primary' : 'text-muted-foreground'
             )}
           >
-            <Icon className="h-4 w-4" />
+            {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
+            <Icon className="h-[18px] w-[18px]" />
             <span className="truncate max-w-full">{t(`sidebar.${item.key}`)}</span>
             {badge > 0 && (
-              <span className="absolute top-1.5 right-1/4 inline-flex h-4 min-w-4 px-1 items-center justify-center text-[9px] font-bold rounded-full bg-destructive text-destructive-foreground">
+              <span className="absolute top-1 right-1/4 inline-flex h-4 min-w-4 px-1 items-center justify-center text-[9px] font-bold rounded-full bg-destructive text-destructive-foreground">
                 {badge}
               </span>
             )}

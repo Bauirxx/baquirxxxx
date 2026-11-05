@@ -1,16 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useI18n } from '@/lib/i18n/context'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { EmptyState } from '../components/empty-state'
 import { useFetch } from '../use-fetch'
 import { useRealtime } from '../realtime-provider'
 import { useDevice } from '../device-context'
-import { useEffect } from 'react'
 import {
   MessageCircle,
   Instagram,
@@ -18,11 +24,17 @@ import {
   Ghost,
   Send,
   AlertTriangle,
-  Filter,
+  Search,
   Image as ImageIcon,
   Mic,
   Volume2,
+  X,
+  ChevronLeft,
+  Smartphone,
+  Flag,
+  Inbox,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const PLATFORM_ICONS: Record<string, any> = {
   whatsapp: MessageCircle,
@@ -38,23 +50,36 @@ const PLATFORM_ICONS: Record<string, any> = {
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
-  whatsapp: 'text-green-600',
-  instagram: 'text-pink-600',
-  tiktok: 'text-black dark:text-white',
-  snapchat: 'text-yellow-500',
-  messenger: 'text-blue-600',
-  telegram: 'text-blue-500',
-  discord: 'text-indigo-600',
-  facebook: 'text-blue-700',
-  sms: 'text-gray-600',
-  other: 'text-gray-500',
+  whatsapp: 'bg-green-500',
+  instagram: 'bg-gradient-to-br from-purple-500 to-pink-500',
+  tiktok: 'bg-black dark:bg-white dark:text-black',
+  snapchat: 'bg-yellow-400',
+  messenger: 'bg-blue-500',
+  telegram: 'bg-sky-500',
+  discord: 'bg-indigo-500',
+  facebook: 'bg-blue-600',
+  sms: 'bg-gray-500',
+  other: 'bg-gray-400',
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  low: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-300',
-  medium: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300',
-  high: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300',
-  critical: 'bg-red-600 text-white',
+const PLATFORM_TEXT: Record<string, string> = {
+  whatsapp: 'text-green-600 dark:text-green-400',
+  instagram: 'text-pink-600 dark:text-pink-400',
+  tiktok: 'text-foreground',
+  snapchat: 'text-yellow-600 dark:text-yellow-400',
+  messenger: 'text-blue-600 dark:text-blue-400',
+  telegram: 'text-sky-600 dark:text-sky-400',
+  discord: 'text-indigo-600 dark:text-indigo-400',
+  facebook: 'text-blue-700 dark:text-blue-400',
+  sms: 'text-gray-600 dark:text-gray-400',
+  other: 'text-gray-500 dark:text-gray-400',
+}
+
+const SEVERITY_STYLES: Record<string, string> = {
+  low: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300 border-yellow-200 dark:border-yellow-900',
+  medium: 'bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300 border-orange-200 dark:border-orange-900',
+  high: 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300 border-red-200 dark:border-red-900',
+  critical: 'bg-red-600 text-white border-red-700',
 }
 
 interface NotificationDTO {
@@ -74,10 +99,48 @@ interface NotificationDTO {
   timestamp: string
 }
 
+/** Agrupa as notificações por "conversa" = plataforma + título normalizado. */
+function conversationKey(n: NotificationDTO): string {
+  // O título costuma trazer o nome do remetente (ex: "Maria" ou "Maria: olá").
+  // Usamos só o primeiro segmento antes de ":" como identificador de conversa.
+  const sender = (n.title || '').split(':')[0].trim().toLowerCase() || '(sem remetente)'
+  return `${n.platform}::${sender}`
+}
+
+function senderDisplay(n: NotificationDTO): string {
+  return (n.title || '').split(':')[0].trim() || '(sem remetente)'
+}
+
+function messageBody(n: NotificationDTO): string {
+  const title = n.title || ''
+  const idx = title.indexOf(':')
+  return idx >= 0 ? title.slice(idx + 1).trim() : title
+}
+
+function formatRelative(ts: string, locale: string, t: (k: string, p?: any) => string): string {
+  const date = new Date(ts)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const isToday = date.toDateString() === now.toDateString()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const isYesterday = date.toDateString() === yesterday.toDateString()
+
+  if (diffMin < 1) return 'agora'
+  if (diffMin < 60) return t('notifications.time.ago', { min: diffMin })
+  if (isToday) return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  if (isYesterday) return t('notifications.yesterday')
+  return date.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })
+}
+
 export function NotificationsView() {
   const { t, locale } = useI18n()
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [activeConvKey, setActiveConvKey] = useState<string | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   const { selectedDeviceId, activeDevices } = useDevice()
 
   const { data, loading, refresh } = useFetch<{ events: NotificationDTO[] }>(
@@ -91,14 +154,50 @@ export function NotificationsView() {
   }, [rtEvents, refresh])
 
   const events = data?.events ?? []
+  const threadRef = useRef<HTMLDivElement>(null)
 
-  // Unique platforms for filter
-  const platforms = Array.from(new Set(events.map(e => e.platform)))
+  // Agrupa por conversa, ordena por última atividade
+  const conversations = useMemo(() => {
+    const map = new Map<string, { key: string; platform: string; sender: string; items: NotificationDTO[]; flaggedCount: number; lastTs: number }>()
+    for (const e of events) {
+      // filtro de pesquisa (remetente ou texto)
+      if (search) {
+        const q = search.toLowerCase()
+        const hay = (senderDisplay(e) + ' ' + e.text + ' ' + e.title).toLowerCase()
+        if (!hay.includes(q)) continue
+      }
+      const key = conversationKey(e)
+      const entry = map.get(key) ?? { key, platform: e.platform, sender: senderDisplay(e), items: [], flaggedCount: 0, lastTs: 0 }
+      entry.items.push(e)
+      if (e.flagged) entry.flaggedCount++
+      const ts = new Date(e.timestamp).getTime()
+      if (ts > entry.lastTs) entry.lastTs = ts
+      map.set(key, entry)
+    }
+    return Array.from(map.values()).sort((a, b) => b.lastTs - a.lastTs)
+  }, [events, search])
+
+  // Lista de plataformas únicas para os filtros
+  const platforms = useMemo(
+    () => Array.from(new Set(events.map(e => e.platform))),
+    [events]
+  )
+
+  const activeConv = activeConvKey ? conversations.find(c => c.key === activeConvKey) : null
+
+  // Stats para o cabeçalho
+  const stats = useMemo(() => {
+    const total = events.length
+    const flagged = events.filter(e => e.flagged).length
+    const lastTs = events.length ? events[0].timestamp : null
+    return { total, flagged, platforms: platforms.length, lastTs }
+  }, [events, platforms])
 
   if (loading && !data) {
     return (
-      <div className="space-y-3">
-        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-220px)]">
+        <div className="space-y-2"><Skeleton className="h-16 w-full" />{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+        <Skeleton className="w-full h-full" />
       </div>
     )
   }
@@ -109,25 +208,47 @@ export function NotificationsView() {
       : 'todos os dispositivos'
     return (
       <EmptyState
-        icon={MessageCircle}
-        title="Sem notificações capturadas"
-        body={`A mostrar dados de ${deviceLabel}. As notificações de WhatsApp, Instagram, TikTok, etc. aparecem aqui quando a app Companion estiver ativa com permissão de Notification Listener.`}
+        icon={Inbox}
+        title={t('notifications.empty.title')}
+        body={t('notifications.empty.body') + ` (${deviceLabel})`}
       />
     )
   }
 
   return (
     <div className="space-y-4">
+      {/* Stats bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MiniStat icon={MessageCircle} label={t('notifications.stat.total')} value={stats.total} tone="primary" />
+        <MiniStat icon={AlertTriangle} label={t('notifications.stat.flagged')} value={stats.flagged} tone={stats.flagged > 0 ? 'danger' : 'default'} />
+        <MiniStat icon={Smartphone} label={t('notifications.stat.platforms')} value={stats.platforms} tone="info" />
+        <MiniStat
+          icon={Inbox}
+          label={t('notifications.stat.last')}
+          value={stats.lastTs ? new Date(stats.lastTs).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '—'}
+          tone="default"
+        />
+      </div>
+
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={t('notifications.filter.search')}
+            className="pl-9 h-9"
+          />
+        </div>
         <Button
           size="sm"
           variant={flaggedOnly ? 'default' : 'outline'}
           onClick={() => setFlaggedOnly(!flaggedOnly)}
-          className="gap-1.5"
+          className="gap-1.5 h-9"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          {flaggedOnly ? 'Sinalizadas' : 'Todas'}
+          {flaggedOnly ? t('notifications.filter.flagged') : t('notifications.filter.all')}
         </Button>
         {platforms.map(p => (
           <Button
@@ -135,89 +256,237 @@ export function NotificationsView() {
             size="sm"
             variant={selectedPlatform === p ? 'default' : 'outline'}
             onClick={() => setSelectedPlatform(selectedPlatform === p ? null : p)}
-            className="capitalize"
+            className="capitalize gap-1.5 h-9"
           >
+            {(() => { const Icon = PLATFORM_ICONS[p] ?? MessageCircle; return <Icon className="h-3.5 w-3.5" /> })()}
             {p}
           </Button>
         ))}
       </div>
 
-      {/* Lista de notificações */}
-      <div className="space-y-2 max-h-[70vh] overflow-y-auto scrollbar-thin">
-        {events.map(e => {
-          const Icon = PLATFORM_ICONS[e.platform] ?? MessageCircle
-          const colorClass = PLATFORM_COLORS[e.platform] ?? 'text-gray-500'
-          return (
-            <Card
-              key={e.id}
-              className={`border-border/60 shadow-none ${e.flagged ? 'border-l-4 border-l-red-500' : ''}`}
-            >
-              <CardContent className="p-3">
-                <div className="flex items-start gap-3">
-                  <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${colorClass}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium capitalize">{e.platform}</span>
-                      {e.flagged && (
-                        <Badge
-                          className={`text-[10px] ${SEVERITY_COLORS[e.severity ?? 'medium'] ?? SEVERITY_COLORS.medium}`}
-                        >
-                          <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                          {e.flagReason ?? 'flagged'}
-                        </Badge>
-                      )}
-                      <span className="text-[10px] text-muted-foreground font-mono ml-auto">
-                        {new Date(e.timestamp).toLocaleString(locale)}
+      {/* Inbox: rail + thread */}
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 h-[calc(100vh-360px)] min-h-[420px]">
+        {/* Rail de conversas */}
+        <Card className="border-border/60 shadow-card overflow-hidden flex flex-col">
+          <div className="px-4 py-3 border-b border-border/60 bg-muted/30">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <MessageCircle className="h-3.5 w-3.5" />
+              {t('notifications.conversations')}
+              <Badge variant="secondary" className="ml-auto text-[10px]">{conversations.length}</Badge>
+            </h3>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="p-1.5 space-y-0.5">
+              {conversations.length === 0 && (
+                <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.thread.empty.body')}</div>
+              )}
+              {conversations.map(conv => {
+                const Icon = PLATFORM_ICONS[conv.platform] ?? MessageCircle
+                const last = conv.items[conv.items.length - 1]
+                const isActive = activeConvKey === conv.key
+                return (
+                  <button
+                    key={conv.key}
+                    onClick={() => setActiveConvKey(conv.key)}
+                    className={cn(
+                      'w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-colors group',
+                      isActive ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-muted/60'
+                    )}
+                  >
+                    <div className={cn('h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-white', PLATFORM_COLORS[conv.platform] ?? 'bg-gray-400')}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground truncate">{conv.sender}</span>
+                        <span className={cn('text-[10px] font-medium capitalize', PLATFORM_TEXT[conv.platform] ?? 'text-muted-foreground')}>{conv.platform}</span>
+                        <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{formatRelative(new Date(conv.lastTs).toISOString(), locale, t)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate mt-0.5">
+                        {messageBody(last) || last.text || t('notifications.no.text')}
+                      </div>
+                    </div>
+                    {conv.flaggedCount > 0 && (
+                      <span className="inline-flex h-5 min-w-5 px-1 items-center justify-center text-[10px] font-bold rounded-full bg-destructive text-destructive-foreground shrink-0">
+                        {conv.flaggedCount}
                       </span>
-                    </div>
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {e.title || '(sem título)'}
-                    </div>
-                    <div className="text-sm text-muted-foreground mt-0.5 break-words whitespace-pre-wrap">
-                      {e.text}
-                    </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </ScrollArea>
+        </Card>
 
-                    {/* Pré-visualização da imagem partilhada (thumbnail JPEG) */}
-                    {e.hasImage && e.imageBase64 && (
-                      <div className="mt-2">
-                        <img
-                          src={`data:image/jpeg;base64,${e.imageBase64}`}
-                          alt="Imagem partilhada"
-                          className="max-w-[200px] max-h-[200px] rounded border border-border/60 object-cover"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
-
-                    {/* Badge de áudio anexado */}
-                    {e.hasAudio && (
-                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-purple-100 dark:bg-purple-950/40 px-2 py-1 text-xs text-purple-700 dark:text-purple-300">
-                        <Volume2 className="h-3 w-3" />
-                        Áudio recebido
-                        <span className="font-mono text-[10px] text-purple-500 truncate max-w-[150px]">
-                          {e.audioUri ?? ''}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Indicadores de multimédia mesmo sem payload */}
-                    {!e.hasImage && e.imageBase64 === null && e.text.includes('[IMG]') && (
-                      <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <ImageIcon className="h-3 w-3" /> imagem
-                      </div>
-                    )}
-                    {!e.hasAudio && e.text.includes('[AUDIO]') && (
-                      <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <Mic className="h-3 w-3" /> áudio
-                      </div>
-                    )}
+        {/* Thread de mensagens */}
+        <Card className="border-border/60 shadow-card overflow-hidden flex flex-col">
+          {activeConv ? (
+            <>
+              {/* Cabeçalho da thread */}
+              <div className="px-4 py-3 border-b border-border/60 bg-muted/30 flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="lg:hidden h-8 w-8 p-0"
+                  onClick={() => setActiveConvKey(null)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                {(() => {
+                  const Icon = PLATFORM_ICONS[activeConv.platform] ?? MessageCircle
+                  return (
+                    <div className={cn('h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-white', PLATFORM_COLORS[activeConv.platform] ?? 'bg-gray-400')}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                  )
+                })()}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground truncate">{activeConv.sender}</span>
+                    <span className={cn('text-[10px] font-medium capitalize', PLATFORM_TEXT[activeConv.platform] ?? 'text-muted-foreground')}>{activeConv.platform}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {activeConv.items.length} mensagens{activeConv.flaggedCount > 0 && ` · ${activeConv.flaggedCount} sinalizadas`}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+                {activeConv.flaggedCount > 0 && (
+                  <Badge variant="destructive" className="gap-1">
+                    <Flag className="h-3 w-3" />
+                    {activeConv.flaggedCount}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Mensagens (style chat, cronológico) */}
+              <ScrollArea className="flex-1">
+                <div ref={threadRef} className="p-4 space-y-3">
+                  {activeConv.items
+                    .slice()
+                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                    .map(n => {
+                      const flagged = n.flagged
+                      return (
+                        <div
+                          key={n.id}
+                          className={cn(
+                            'flex flex-col max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm shadow-soft',
+                            flagged
+                              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 self-start rounded-bl-sm'
+                              : 'bg-muted self-start rounded-bl-sm'
+                          )}
+                        >
+                          {/* metadata line */}
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              {new Date(n.timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {flagged && (
+                              <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border', SEVERITY_STYLES[n.severity ?? 'medium'] ?? SEVERITY_STYLES.medium)}>
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {n.flagReason ?? t('notifications.flagged.badge')}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* corpo da mensagem */}
+                          <div className="text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                            {messageBody(n) || n.text || t('notifications.no.text')}
+                          </div>
+
+                          {/* imagem */}
+                          {n.hasImage && n.imageBase64 && (
+                            <button
+                              onClick={() => setLightboxImage(n.imageBase64)}
+                              className="mt-2 block rounded-lg overflow-hidden border border-border/60 hover:opacity-90 transition-opacity"
+                            >
+                              <img
+                                src={`data:image/jpeg;base64,${n.imageBase64}`}
+                                alt={t('notifications.image')}
+                                className="max-w-[260px] max-h-[200px] object-cover"
+                                loading="lazy"
+                              />
+                            </button>
+                          )}
+
+                          {/* marcadores multimédia mesmo sem payload */}
+                          {!n.hasImage && n.imageBase64 === null && (n.text + n.title).includes('[IMG]') && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted/60 rounded px-1.5 py-0.5">
+                              <ImageIcon className="h-3 w-3" /> {t('notifications.image')}
+                            </div>
+                          )}
+                          {(n.hasAudio || (n.text + n.title).includes('[AUDIO]')) && (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/40 rounded px-1.5 py-0.5">
+                              <Volume2 className="h-3 w-3" />
+                              {t('notifications.audio')}
+                              {n.audioUri && <span className="font-mono text-[10px] truncate max-w-[120px]">{n.audioUri}</span>}
+                            </div>
+                          )}
+                          {n.hasAudio && !n.audioUri && <Mic className="hidden" />}
+                        </div>
+                      )
+                    })}
+                </div>
+              </ScrollArea>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-8">
+              <div className="text-center max-w-sm">
+                <div className="h-16 w-16 rounded-2xl bg-muted text-muted-foreground flex items-center justify-center mx-auto mb-4">
+                  <MessageCircle className="h-7 w-7" />
+                </div>
+                <h3 className="font-serif-display text-lg text-foreground mb-1">{t('notifications.thread.empty.title')}</h3>
+                <p className="text-sm text-muted-foreground">{t('notifications.thread.empty.body')}</p>
+              </div>
+            </div>
+          )}
+        </Card>
       </div>
+
+      {/* Lightbox de imagem */}
+      <Dialog open={!!lightboxImage} onOpenChange={open => !open && setLightboxImage(null)}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black/95 border-border/20">
+          <DialogTitle className="sr-only">{t('notifications.image')}</DialogTitle>
+          {lightboxImage && (
+            <div className="relative flex items-center justify-center">
+              <img
+                src={`data:image/jpeg;base64,${lightboxImage}`}
+                alt={t('notifications.image')}
+                className="max-h-[80vh] w-auto object-contain"
+              />
+              <Button
+                variant="secondary"
+                size="icon"
+                className="absolute top-3 right-3 h-8 w-8 rounded-full"
+                onClick={() => setLightboxImage(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+function MiniStat({ icon: Icon, label, value, tone }: { icon: any; label: string; value: string | number; tone: 'default' | 'primary' | 'danger' | 'info' }) {
+  const toneClasses = {
+    default: 'bg-muted text-muted-foreground',
+    primary: 'bg-primary/10 text-primary',
+    danger: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300',
+    info: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+  }[tone]
+  return (
+    <Card className="border-border/60 shadow-soft">
+      <CardContent className="p-3 flex items-center gap-3">
+        <div className={cn('h-9 w-9 rounded-lg flex items-center justify-center shrink-0', toneClasses)}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{label}</div>
+          <div className="font-serif-display text-lg leading-none text-foreground mt-0.5 truncate">{value}</div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
