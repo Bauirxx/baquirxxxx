@@ -196,6 +196,30 @@ server.on('upgrade', (req, socket, head) => {
   if (path.startsWith('/ws/devices/')) {
     const id = decodeURIComponent(path.slice('/ws/devices/'.length))
     wss.handleUpgrade(req, socket, head, (ws) => onBrowser(ws, id))
+  } else if (path.startsWith('/_next/') || path.startsWith('/__next')) {
+    // HMR / Turbopack dev WebSocket — proxy transparente para o Next.js.
+    const proxyReq = http.request({
+      host: NEXT.host,
+      port: NEXT.port,
+      method: req.method,
+      path: req.url,
+      headers: { ...req.headers, host: NEXT.host + ':' + NEXT.port },
+    })
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      const statusLine = 'HTTP/1.1 ' + proxyRes.statusCode + ' ' + proxyRes.statusMessage + '\r\n'
+      let headers = ''
+      for (let i = 0; i < proxyRes.rawHeaders.length; i += 2) {
+        headers += proxyRes.rawHeaders[i] + ': ' + proxyRes.rawHeaders[i + 1] + '\r\n'
+      }
+      socket.write(statusLine + headers + '\r\n')
+      if (proxyHead && proxyHead.length) socket.write(proxyHead)
+      proxySocket.pipe(socket)
+      socket.pipe(proxySocket)
+      proxySocket.on('error', () => { try { socket.destroy() } catch {} })
+      socket.on('error', () => { try { proxySocket.destroy() } catch {} })
+    })
+    proxyReq.on('error', () => { try { socket.destroy() } catch {} })
+    proxyReq.end()
   } else {
     // A app Companion liga-se na RAIZ e envia o token no header X-Agent-Token.
     const token = req.headers['x-agent-token'] || url.searchParams.get('token')

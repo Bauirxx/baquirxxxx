@@ -35,10 +35,11 @@ export async function createSession(userId: string, meta?: { ip?: string; ua?: s
   // SameSite=None + Secure para o cookie funcionar dentro de iframes cross-site
   // (preview URLs carregadas em iframes em IMs como o chat.z.ai exigem None+Secure).
   // Localhost é tratado como "secure context" pelo navegador, então Secure funciona em dev também.
+  const isDev = process.env.NODE_ENV !== 'production'
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: 'none',
-    secure: true,
+    sameSite: isDev ? 'lax' : 'none',
+    secure: !isDev,
     path: '/',
     expires: expiresAt,
   })

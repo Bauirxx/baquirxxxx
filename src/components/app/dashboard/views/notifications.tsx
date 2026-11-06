@@ -33,6 +33,10 @@ import {
   Smartphone,
   Flag,
   Inbox,
+  Camera,
+  FileText,
+  Video,
+  Calendar,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -93,6 +97,7 @@ interface NotificationDTO {
   imageBase64: string | null
   hasAudio: boolean
   audioUri: string | null
+  audioBase64: string | null
   flagged: boolean
   flagReason: string | null
   severity: string | null
@@ -112,9 +117,40 @@ function senderDisplay(n: NotificationDTO): string {
 }
 
 function messageBody(n: NotificationDTO): string {
+  if (n.text) return n.text
   const title = n.title || ''
   const idx = title.indexOf(':')
-  return idx >= 0 ? title.slice(idx + 1).trim() : title
+  return idx >= 0 ? title.slice(idx + 1).trim() : ''
+}
+
+type MediaHint = 'photo' | 'voice' | 'video' | 'audio' | 'file' | null
+
+function detectMediaHint(n: NotificationDTO): MediaHint {
+  const t = ((n.text || '') + ' ' + (n.title || '')).toLowerCase()
+  if (n.hasImage || t.includes('📷') || t.includes('enviou uma foto') || t.includes('sent a photo') || t.includes('[img]')) return 'photo'
+  if (t.includes('🎤') || t.includes('mensagem de voz') || t.includes('voice message') || t.includes('ptt')) return 'voice'
+  if (t.includes('🎥') || t.includes('vídeo') || t.includes('video')) return 'video'
+  if (n.hasAudio || t.includes('[audio]')) return 'audio'
+  if (t.includes('📄') || t.includes('documento') || t.includes('document') || t.includes('ficheiro') || t.includes('file')) return 'file'
+  return null
+}
+
+const MEDIA_HINT_CONFIG: Record<string, { icon: any; label: string; className: string }> = {
+  photo: { icon: Camera, label: 'Foto', className: 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-950/40' },
+  voice: { icon: Mic, label: 'Mensagem de voz', className: 'text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950/40' },
+  video: { icon: Video, label: 'Vídeo', className: 'text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-950/40' },
+  audio: { icon: Volume2, label: 'Áudio', className: 'text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950/40' },
+  file: { icon: FileText, label: 'Ficheiro', className: 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/40' },
+}
+
+function dateDividerLabel(ts: string, locale: string): string {
+  const d = new Date(ts)
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (d.toDateString() === now.toDateString()) return 'Hoje'
+  if (d.toDateString() === yesterday.toDateString()) return 'Ontem'
+  return d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
 function formatRelative(ts: string, locale: string, t: (k: string, p?: any) => string): string {
@@ -153,7 +189,19 @@ export function NotificationsView() {
     if (rtEvents.some(e => e.type === 'notification' || e.type === 'alert')) refresh()
   }, [rtEvents, refresh])
 
-  const events = data?.events ?? []
+  // Deduplicate: remove notifications with same title+text within 5 seconds
+  const events = useMemo(() => {
+    const raw = data?.events ?? []
+    const seen = new Map<string, number>()
+    return raw.filter(e => {
+      const key = `${e.title}|${e.text}`
+      const ts = new Date(e.timestamp).getTime()
+      const prev = seen.get(key)
+      if (prev !== undefined && Math.abs(ts - prev) < 5000) return false
+      seen.set(key, ts)
+      return true
+    })
+  }, [data?.events])
   const threadRef = useRef<HTMLDivElement>(null)
 
   // Agrupa por conversa, ordena por última atividade
@@ -302,8 +350,17 @@ export function NotificationsView() {
                         <span className={cn('text-[10px] font-medium capitalize', PLATFORM_TEXT[conv.platform] ?? 'text-muted-foreground')}>{conv.platform}</span>
                         <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{formatRelative(new Date(conv.lastTs).toISOString(), locale, t)}</span>
                       </div>
-                      <div className="text-xs text-muted-foreground truncate mt-0.5">
-                        {messageBody(last) || last.text || t('notifications.no.text')}
+                      <div className="text-xs text-muted-foreground truncate mt-0.5 flex items-center gap-1">
+                        {(() => {
+                          const hint = detectMediaHint(last)
+                          if (hint) {
+                            const cfg = MEDIA_HINT_CONFIG[hint]
+                            const HintIcon = cfg.icon
+                            return <><HintIcon className="h-3 w-3 shrink-0 opacity-70" /><span className="truncate">{cfg.label}</span></>
+                          }
+                          const body = messageBody(last)
+                          return <span className="truncate">{body || t('notifications.no.text')}</span>
+                        })()}
                       </div>
                     </div>
                     {conv.flaggedCount > 0 && (
@@ -357,27 +414,50 @@ export function NotificationsView() {
                 )}
               </div>
 
-              {/* Mensagens (style chat, cronológico) */}
+              {/* Mensagens (style chat, cronológico, agrupadas por data) */}
               <ScrollArea className="flex-1">
-                <div ref={threadRef} className="p-4 space-y-3">
-                  {activeConv.items
-                    .slice()
-                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-                    .map(n => {
+                <div ref={threadRef} className="p-4 flex flex-col gap-2">
+                  {(() => {
+                    const sorted = activeConv.items
+                      .slice()
+                      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                    let lastDateStr = ''
+                    const nodes: React.ReactNode[] = []
+                    for (const n of sorted) {
                       const flagged = n.flagged
-                      return (
+                      const dateStr = new Date(n.timestamp).toDateString()
+                      const showDateDivider = dateStr !== lastDateStr
+                      lastDateStr = dateStr
+                      const mediaHint = detectMediaHint(n)
+                      const hintCfg = mediaHint ? MEDIA_HINT_CONFIG[mediaHint] : null
+                      const body = messageBody(n)
+
+                      if (showDateDivider) {
+                        nodes.push(
+                          <div key={`date-${n.id}`} className="flex items-center gap-3 my-3 first:mt-0">
+                            <div className="flex-1 h-px bg-border/50" />
+                            <span className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60">
+                              <Calendar className="h-3 w-3" />
+                              {dateDividerLabel(n.timestamp, locale)}
+                            </span>
+                            <div className="flex-1 h-px bg-border/50" />
+                          </div>
+                        )
+                      }
+
+                      nodes.push(
                         <div
                           key={n.id}
                           className={cn(
-                            'flex flex-col max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm shadow-soft',
+                            'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
                             flagged
-                              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 self-start rounded-bl-sm'
-                              : 'bg-muted self-start rounded-bl-sm'
+                              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-bl-sm'
+                              : 'bg-muted/80 rounded-bl-sm'
                           )}
                         >
-                          {/* metadata line */}
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] text-muted-foreground font-mono">
+                          {/* hora + alerta */}
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[11px] text-muted-foreground font-medium">
                               {new Date(n.timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                             </span>
                             {flagged && (
@@ -389,42 +469,54 @@ export function NotificationsView() {
                           </div>
 
                           {/* corpo da mensagem */}
-                          <div className="text-foreground whitespace-pre-wrap break-words leading-relaxed">
-                            {messageBody(n) || n.text || t('notifications.no.text')}
-                          </div>
+                          {body ? (
+                            <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                              {body}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground italic text-xs">{t('notifications.no.text')}</p>
+                          )}
 
-                          {/* imagem */}
-                          {n.hasImage && n.imageBase64 && (
+                          {/* imagem capturada */}
+                          {n.imageBase64 && (
                             <button
                               onClick={() => setLightboxImage(n.imageBase64)}
-                              className="mt-2 block rounded-lg overflow-hidden border border-border/60 hover:opacity-90 transition-opacity"
+                              className="mt-2.5 block rounded-xl overflow-hidden border border-border/40 hover:opacity-90 transition-opacity cursor-zoom-in"
                             >
                               <img
                                 src={`data:image/jpeg;base64,${n.imageBase64}`}
-                                alt={t('notifications.image')}
-                                className="max-w-[260px] max-h-[200px] object-cover"
+                                alt="Foto"
+                                className="max-w-[280px] max-h-[220px] object-cover"
                                 loading="lazy"
                               />
                             </button>
                           )}
 
-                          {/* marcadores multimédia mesmo sem payload */}
-                          {!n.hasImage && n.imageBase64 === null && (n.text + n.title).includes('[IMG]') && (
-                            <div className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted/60 rounded px-1.5 py-0.5">
-                              <ImageIcon className="h-3 w-3" /> {t('notifications.image')}
+                          {/* áudio player */}
+                          {n.audioBase64 && (
+                            <div className="mt-2.5 flex items-center gap-2 bg-purple-50 dark:bg-purple-950/30 rounded-xl px-3 py-2.5">
+                              <Mic className="h-4 w-4 text-purple-500 shrink-0" />
+                              <audio
+                                controls
+                                preload="metadata"
+                                className="h-8 w-full [&::-webkit-media-controls-panel]:bg-transparent"
+                                src={`data:audio/ogg;base64,${n.audioBase64}`}
+                              />
                             </div>
                           )}
-                          {(n.hasAudio || (n.text + n.title).includes('[AUDIO]')) && (
-                            <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/40 rounded px-1.5 py-0.5">
-                              <Volume2 className="h-3 w-3" />
-                              {t('notifications.audio')}
-                              {n.audioUri && <span className="font-mono text-[10px] truncate max-w-[120px]">{n.audioUri}</span>}
+
+                          {/* media hint (sem conteúdo real) */}
+                          {hintCfg && !n.imageBase64 && !n.audioBase64 && (
+                            <div className={cn('mt-2 inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5', hintCfg.className)}>
+                              <hintCfg.icon className="h-3.5 w-3.5" />
+                              {hintCfg.label}
                             </div>
                           )}
-                          {n.hasAudio && !n.audioUri && <Mic className="hidden" />}
                         </div>
                       )
-                    })}
+                    }
+                    return nodes
+                  })()}
                 </div>
               </ScrollArea>
             </>

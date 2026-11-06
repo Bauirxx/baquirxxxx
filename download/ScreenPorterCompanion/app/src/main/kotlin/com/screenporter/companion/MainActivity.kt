@@ -32,6 +32,7 @@ import com.screenporter.companion.ui.ActionType
 import com.screenporter.companion.ui.PermissionItem
 import com.screenporter.companion.ui.PermissionItemAdapter
 import com.screenporter.companion.util.PermissionState
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,7 +45,10 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "SP-Main"
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val exHandler = CoroutineExceptionHandler { _, e ->
+        Log.e(TAG, "Coroutine error", e)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + exHandler)
     private lateinit var prefs: com.screenporter.companion.util.PreferencesManager
     private lateinit var api: ApiClient
     private lateinit var adapter: PermissionItemAdapter
@@ -313,15 +317,20 @@ class MainActivity : AppCompatActivity() {
         prefs.serverPassword = pass
 
         scope.launch {
-            val ok = withContext(Dispatchers.IO) { api.login() }
-            if (ok) {
-                Toast.makeText(this@MainActivity, R.string.toast_login_ok, Toast.LENGTH_SHORT).show()
-                textStep1Status.text = getString(R.string.permission_granted)
-                textStep1Status.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_success))
-            } else {
+            try {
+                val ok = withContext(Dispatchers.IO) { api.login() }
+                if (ok) {
+                    Toast.makeText(this@MainActivity, R.string.toast_login_ok, Toast.LENGTH_SHORT).show()
+                    textStep1Status.text = getString(R.string.permission_granted)
+                    textStep1Status.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_success))
+                } else {
+                    Toast.makeText(this@MainActivity, R.string.toast_login_fail, Toast.LENGTH_LONG).show()
+                    textStep1Status.text = getString(R.string.permission_missing)
+                    textStep1Status.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_warning))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Login failed", e)
                 Toast.makeText(this@MainActivity, R.string.toast_login_fail, Toast.LENGTH_LONG).show()
-                textStep1Status.text = getString(R.string.permission_missing)
-                textStep1Status.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_warning))
             }
         }
     }
@@ -456,12 +465,17 @@ class MainActivity : AppCompatActivity() {
             }
             if (prefs.authToken.isNullOrEmpty()) {
                 scope.launch {
-                    val ok = withContext(Dispatchers.IO) { api.login() }
-                    if (!ok) {
+                    try {
+                        val ok = withContext(Dispatchers.IO) { api.login() }
+                        if (!ok) {
+                            Toast.makeText(this@MainActivity, R.string.toast_login_fail, Toast.LENGTH_LONG).show()
+                            return@launch
+                        }
+                        requestMediaProjection()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Connect login failed", e)
                         Toast.makeText(this@MainActivity, R.string.toast_login_fail, Toast.LENGTH_LONG).show()
-                        return@launch
                     }
-                    requestMediaProjection()
                 }
             } else {
                 requestMediaProjection()

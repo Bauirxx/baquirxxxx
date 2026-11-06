@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
     imageBase64: e.imageBase64,
     hasAudio: e.hasAudio,
     audioUri: e.audioUri,
+    audioBase64: e.audioBase64,
     flagged: e.flagged,
     flagReason: e.flagReason,
     severity: e.severity,

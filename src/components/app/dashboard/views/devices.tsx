@@ -329,7 +329,7 @@ export function DevicesView({ user }: DevicesViewProps) {
         const dev = devices.find(d => d.id === setupQrFor)
         if (!dev) return null
         const deepLink = pairToken
-          ? `screenporter://setup?server=${encodeURIComponent(`${hostForPhone}:4820`)}` +
+          ? `screenporter://setup?server=${encodeURIComponent(`${hostForPhone}:8820`)}` +
             `&user=${encodeURIComponent(user.email)}` +
             `&token=${encodeURIComponent(pairToken)}` +
             `&jurisdiction=${encodeURIComponent(user.jurisdiction)}`

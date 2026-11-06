@@ -143,26 +143,38 @@ export async function POST(req: NextRequest) {
       }
       saved = { id: `batch-${upserted}`, type: 'installed_apps', count: upserted }
     } else if (type === 'notification') {
-      // Notificação capturada via NotificationListenerService (WhatsApp, IG, TikTok, etc.)
-      // O texto É o conteúdo visível na notificação no ecrã — não bypass de E2E.
-      // Pode incluir imagem (base64 thumbnail) e/ou URI de áudio.
-      saved = await db.notificationEvent.create({
-        data: {
+      // Dedup: skip if identical notification received within 5 seconds
+      const title = String(payload.title ?? '')
+      const text = String(payload.text ?? '')
+      const recent = await db.notificationEvent.findFirst({
+        where: {
           deviceId: device.id,
-          platform: String(payload.platform ?? 'other'),
-          packageName: String(payload.packageName ?? ''),
-          title: String(payload.title ?? ''),
-          text: String(payload.text ?? ''),
-          hasImage: Boolean(payload.hasImage ?? false),
-          imageBase64: payload.imageBase64 ?? null,
-          hasAudio: Boolean(payload.hasAudio ?? false),
-          audioUri: payload.audioUri ?? null,
-          flagged: Boolean(payload.flagged ?? false),
-          flagReason: payload.flagReason ?? null,
-          severity: payload.severity ?? null,
-          timestamp: ts,
+          title,
+          text,
+          timestamp: { gte: new Date(ts.getTime() - 5000) },
         },
+        select: { id: true },
       })
+      if (!recent) {
+        saved = await db.notificationEvent.create({
+          data: {
+            deviceId: device.id,
+            platform: String(payload.platform ?? 'other'),
+            packageName: String(payload.packageName ?? ''),
+            title,
+            text,
+            hasImage: Boolean(payload.hasImage ?? false),
+            imageBase64: payload.imageBase64 ?? null,
+            hasAudio: Boolean(payload.hasAudio ?? false),
+            audioUri: payload.audioUri ?? null,
+            audioBase64: payload.audioBase64 ?? null,
+            flagged: Boolean(payload.flagged ?? false),
+            flagReason: payload.flagReason ?? null,
+            severity: payload.severity ?? null,
+            timestamp: ts,
+          },
+        })
+      }
     } else if (type === 'browser') {
       saved = await db.browserEvent.create({
         data: {

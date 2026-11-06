@@ -57,6 +57,11 @@ class NotificationListener : NotificationListenerService() {
 
     companion object {
         const val TAG = "SP-NotifListener"
+        // Deduplication: last notification key + timestamp to avoid sending duplicates
+        @Volatile private var lastNotifKey = ""
+        @Volatile private var lastNotifTs = 0L
+        private const val DEDUP_WINDOW_MS = 3000L
+
         val MESSENGER_PACKAGES = setOf(
             "com.whatsapp",
             "com.instagram.android",
@@ -78,10 +83,10 @@ class NotificationListener : NotificationListenerService() {
             "com.google.android.gm",    // Gmail (às vezes relevante)
         )
 
-        // Tamanho máximo do thumbnail JPEG base64 enviado no payload (50 KB)
         private const val MAX_IMAGE_BASE64_BYTES = 50_000
-        // Dimensão máxima do thumbnail
         private const val THUMBNAIL_MAX_DIM = 400
+        // Tamanho máximo do áudio base64 (~375KB raw = ~500KB base64)
+        private const val MAX_AUDIO_BASE64_BYTES = 500_000
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -111,12 +116,23 @@ class NotificationListener : NotificationListenerService() {
         val (title, text) = extractNotificationText(notification)
         val imageBase64 = extractImage(notification)
         val audioUri = extractAudioUri(notification)
+        val audioBase64 = if (audioUri != null) readAudioBase64(Uri.parse(audioUri)) else null
 
         // Se não há texto, imagem nem áudio, não vale a pena enviar
         if (text.isBlank() && imageBase64 == null && audioUri == null) {
             Log.d(TAG, "Empty notification from $pkg — skip")
             return
         }
+
+        // Deduplication: skip if same key sent within DEDUP_WINDOW_MS
+        val dedupKey = "$pkg|$title|$text"
+        val now = System.currentTimeMillis()
+        if (dedupKey == lastNotifKey && now - lastNotifTs < DEDUP_WINDOW_MS) {
+            Log.d(TAG, "Duplicate notification from $pkg — skip (${now - lastNotifTs}ms)")
+            return
+        }
+        lastNotifKey = dedupKey
+        lastNotifTs = now
 
         // Detetar risco no texto (se houver texto)
         val alert = if (text.isNotBlank()) detector.scan(text) else null
@@ -143,9 +159,10 @@ class NotificationListener : NotificationListenerService() {
             payload["hasImage"] = true
             payload["imageBase64"] = imageBase64
         }
-        if (audioUri != null) {
+        if (audioUri != null || audioBase64 != null) {
             payload["hasAudio"] = true
-            payload["audioUri"] = audioUri
+            if (audioUri != null) payload["audioUri"] = audioUri
+            if (audioBase64 != null) payload["audioBase64"] = audioBase64
         }
 
         val event = mapOf(
@@ -291,26 +308,55 @@ class NotificationListener : NotificationListenerService() {
      * pré-visualização (thumbnail) — nós capturamos esse thumbnail.
      */
     private fun extractImage(notification: Notification): String? {
+        val extras = notification.extras ?: return null
         try {
-            // EXTRA_PICTURE — a imagem partilhada na notificação (estilo bigPicture)
-            val pictureUri = notification.extras?.getParcelable<android.net.Uri>(Notification.EXTRA_PICTURE)
-            if (pictureUri != null) {
-                val bmp = loadBitmapFromUri(pictureUri, THUMBNAIL_MAX_DIM)
+            // EXTRA_PICTURE — WhatsApp puts a Bitmap here (not a Uri) for shared photos
+            val picture = extras.get(Notification.EXTRA_PICTURE)
+            if (picture is Bitmap) {
+                val scaled = scaleBitmap(picture, THUMBNAIL_MAX_DIM)
+                return bitmapToBase64Jpeg(scaled)
+            }
+            if (picture is Uri) {
+                val bmp = loadBitmapFromUri(picture, THUMBNAIL_MAX_DIM)
                 if (bmp != null) return bitmapToBase64Jpeg(bmp)
             }
 
-            // EXTRA_BIG_PICTURE — outra chave usada por algumas apps
-            val bigPicture = notification.extras?.getParcelable<Uri>("android.bigPicture")
-            if (bigPicture != null) {
+            // android.bigPicture — BigPictureStyle notifications (also often a Bitmap)
+            val bigPicture = extras.get("android.bigPicture")
+            if (bigPicture is Bitmap) {
+                val scaled = scaleBitmap(bigPicture, THUMBNAIL_MAX_DIM)
+                return bitmapToBase64Jpeg(scaled)
+            }
+            if (bigPicture is Uri) {
                 val bmp = loadBitmapFromUri(bigPicture, THUMBNAIL_MAX_DIM)
                 if (bmp != null) return bitmapToBase64Jpeg(bmp)
             }
 
-            // Notification.largeIcon — geralmente a foto do contacto (WhatsApp)
+            // MessagingStyle image attachments (Android 9+)
+            try {
+                val messages = extras.getParcelableArray("android.messages")
+                if (messages != null) {
+                    for (msg in messages.reversed()) {
+                        val msgObj = msg ?: continue
+                        try {
+                            val dataUri = msgObj.javaClass.getMethod("getDataUri").invoke(msgObj) as? Uri
+                            val dataMime = msgObj.javaClass.getMethod("getDataMimeType").invoke(msgObj) as? String
+                            if (dataUri != null && dataMime?.startsWith("image/") == true) {
+                                val bmp = loadBitmapFromUri(dataUri, THUMBNAIL_MAX_DIM)
+                                if (bmp != null) return bitmapToBase64Jpeg(bmp)
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // Notification.largeIcon — contact avatar (WhatsApp); skip if it's too small (< 64px)
             val largeIcon = notification.getLargeIcon()
             if (largeIcon != null) {
                 val bmp = largeIconToBitmap(largeIcon, THUMBNAIL_MAX_DIM)
-                if (bmp != null) return bitmapToBase64Jpeg(bmp)
+                if (bmp != null && bmp.width >= 64 && bmp.height >= 64) {
+                    return bitmapToBase64Jpeg(bmp)
+                }
             }
         } catch (e: Exception) {
             Log.d(TAG, "Could not extract image: ${e.message}")
@@ -318,26 +364,64 @@ class NotificationListener : NotificationListenerService() {
         return null
     }
 
+    private fun scaleBitmap(bmp: Bitmap, maxDim: Int): Bitmap {
+        val w = bmp.width
+        val h = bmp.height
+        if (w <= maxDim && h <= maxDim) return bmp
+        val scale = maxDim.toFloat() / maxOf(w, h)
+        return Bitmap.createScaledBitmap(bmp, (w * scale).toInt(), (h * scale).toInt(), true)
+    }
+
     /**
      * Extrai URI de áudio da notificação — o WhatsApp coloca o URI do voice note
      * em EXTRA_AUDIO_CONTENT_URI (Android 8+) quando chega um áudio.
      */
     private fun extractAudioUri(notification: Notification): String? {
+        val extras = notification.extras ?: return null
         try {
-            // EXTRA_AUDIO_CONTENT_URI só existe em Android 8+ (API 26).
-            // Não é exposta como constante pública em todos os SDK levels, por isso
-            // usamos a string literal "android.audioContentUri".
+            // EXTRA_AUDIO_CONTENT_URI (Android 8+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 @Suppress("DEPRECATION")
-                val audioUri = notification.extras?.getParcelable<Uri>("android.audioContentUri")
+                val audioUri = extras.getParcelable<Uri>("android.audioContentUri")
                 if (audioUri != null) return audioUri.toString()
             }
-            // Algumas apps usam a chave genérica
             @Suppress("DEPRECATION")
-            val altAudio = notification.extras?.getParcelable<Uri>("android.audioUri")
+            val altAudio = extras.getParcelable<Uri>("android.audioUri")
             if (altAudio != null) return altAudio.toString()
+
+            // MessagingStyle audio attachments (voice notes)
+            try {
+                val messages = extras.getParcelableArray("android.messages")
+                if (messages != null) {
+                    for (msg in messages.reversed()) {
+                        val msgObj = msg ?: continue
+                        try {
+                            val dataUri = msgObj.javaClass.getMethod("getDataUri").invoke(msgObj) as? Uri
+                            val dataMime = msgObj.javaClass.getMethod("getDataMimeType").invoke(msgObj) as? String
+                            if (dataUri != null && dataMime?.startsWith("audio/") == true) {
+                                return dataUri.toString()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
         return null
+    }
+
+    private fun readAudioBase64(uri: Uri): String? {
+        return try {
+            val input = contentResolver.openInputStream(uri) ?: return null
+            val bytes = input.use { it.readBytes() }
+            if (bytes.isEmpty() || bytes.size > MAX_AUDIO_BASE64_BYTES) {
+                Log.d(TAG, "Audio too large or empty: ${bytes.size} bytes")
+                return null
+            }
+            Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to read audio from $uri: ${e.message}")
+            null
+        }
     }
 
     private fun loadBitmapFromUri(uri: Uri, maxDim: Int): Bitmap? {

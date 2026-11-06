@@ -242,9 +242,19 @@ export function MediaView() {
               {(() => {
                 const m = media[lightboxIndex]
                 const Icon = TYPE_ICONS[m.type] ?? ImageIcon
-                return m.thumbnail ? (
+                const fileUrl = `/api/dashboard/media/file?id=${m.id}`
+                return m.thumbnail || m.type === 'photo' ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.thumbnail} alt={m.fileName} className="max-h-[78vh] w-auto object-contain" />
+                  <img src={m.thumbnail || fileUrl} alt={m.fileName} className="max-h-[78vh] w-auto object-contain" />
+                ) : m.type === 'video' ? (
+                  <video src={fileUrl} controls autoPlay className="max-h-[78vh] w-auto" />
+                ) : m.type === 'audio' ? (
+                  <div className="flex flex-col items-center gap-4 p-8">
+                    <div className={cn('h-32 w-32 rounded-2xl flex items-center justify-center', TYPE_COLORS[m.type])}>
+                      <Icon className="h-16 w-16" />
+                    </div>
+                    <audio src={fileUrl} controls autoPlay className="w-80" />
+                  </div>
                 ) : (
                   <div className={cn('h-32 w-32 rounded-2xl flex items-center justify-center', TYPE_COLORS[m.type] ?? 'text-gray-400 bg-muted')}>
                     <Icon className="h-16 w-16" />
@@ -288,6 +298,14 @@ export function MediaView() {
                         {media[lightboxIndex].flagReason ?? 'flag'}
                       </Badge>
                     )}
+                    <a
+                      href={`/api/dashboard/media/file?id=${media[lightboxIndex].id}`}
+                      download={media[lightboxIndex].fileName}
+                      className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Download className="h-4 w-4 text-white" />
+                    </a>
                   </div>
                 </div>
               </div>
