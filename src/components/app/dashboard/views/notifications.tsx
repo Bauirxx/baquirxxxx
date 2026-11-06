@@ -102,6 +102,10 @@ interface NotificationDTO {
   flagReason: string | null
   severity: string | null
   timestamp: string
+  linkedMediaId: string | null
+  linkedMediaType: string | null
+  linkedMediaThumb: string | null
+  linkedMediaMime: string | null
 }
 
 /** Agrupa as notificações por "conversa" = plataforma + título normalizado. */
@@ -356,7 +360,7 @@ export function NotificationsView() {
                           if (hint) {
                             const cfg = MEDIA_HINT_CONFIG[hint]
                             const HintIcon = cfg.icon
-                            return <><HintIcon className="h-3 w-3 shrink-0 opacity-70" /><span className="truncate">{cfg.label}</span></>
+                            return <><HintIcon className="h-3 w-3 shrink-0 opacity-70" /><span className="truncate">{cfg.label}{last.linkedMediaId ? '' : ' (pendente)'}</span></>
                           }
                           const body = messageBody(last)
                           return <span className="truncate">{body || t('notifications.no.text')}</span>
@@ -477,7 +481,7 @@ export function NotificationsView() {
                             <p className="text-muted-foreground italic text-xs">{t('notifications.no.text')}</p>
                           )}
 
-                          {/* imagem capturada */}
+                          {/* imagem capturada inline */}
                           {n.imageBase64 && (
                             <button
                               onClick={() => setLightboxImage(n.imageBase64)}
@@ -492,7 +496,7 @@ export function NotificationsView() {
                             </button>
                           )}
 
-                          {/* áudio player */}
+                          {/* áudio capturado inline */}
                           {n.audioBase64 && (
                             <div className="mt-2.5 flex items-center gap-2 bg-purple-50 dark:bg-purple-950/30 rounded-xl px-3 py-2.5">
                               <Mic className="h-4 w-4 text-purple-500 shrink-0" />
@@ -505,8 +509,53 @@ export function NotificationsView() {
                             </div>
                           )}
 
-                          {/* media hint (sem conteúdo real) */}
-                          {hintCfg && !n.imageBase64 && !n.audioBase64 && (
+                          {/* Media linkado do MediaReporter (foto/vídeo/áudio real do dispositivo) */}
+                          {!n.imageBase64 && !n.audioBase64 && n.linkedMediaId && (
+                            <div className="mt-2.5">
+                              {n.linkedMediaType === 'photo' && n.linkedMediaThumb ? (
+                                <button
+                                  onClick={() => setLightboxImage(n.linkedMediaThumb!.replace('data:image/jpeg;base64,', ''))}
+                                  className="block rounded-xl overflow-hidden border border-border/40 hover:opacity-90 transition-opacity cursor-zoom-in"
+                                >
+                                  <img
+                                    src={n.linkedMediaThumb}
+                                    alt="Foto"
+                                    className="max-w-[280px] max-h-[220px] object-cover"
+                                    loading="lazy"
+                                  />
+                                </button>
+                              ) : n.linkedMediaType === 'video' ? (
+                                <div className="rounded-xl overflow-hidden border border-border/40 max-w-[320px]">
+                                  <video
+                                    controls
+                                    preload="metadata"
+                                    className="w-full max-h-[220px]"
+                                    src={`/api/dashboard/media/file?id=${n.linkedMediaId}`}
+                                  />
+                                </div>
+                              ) : n.linkedMediaType === 'audio' ? (
+                                <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-xl px-3 py-2.5">
+                                  <Volume2 className="h-4 w-4 text-green-500 shrink-0" />
+                                  <audio
+                                    controls
+                                    preload="metadata"
+                                    className="h-8 w-full [&::-webkit-media-controls-panel]:bg-transparent"
+                                    src={`/api/dashboard/media/file?id=${n.linkedMediaId}`}
+                                  />
+                                </div>
+                              ) : n.linkedMediaThumb ? (
+                                <img
+                                  src={n.linkedMediaThumb}
+                                  alt="Media"
+                                  className="max-w-[280px] max-h-[220px] object-cover rounded-xl"
+                                  loading="lazy"
+                                />
+                              ) : null}
+                            </div>
+                          )}
+
+                          {/* media hint (sem conteúdo disponível) */}
+                          {hintCfg && !n.imageBase64 && !n.audioBase64 && !n.linkedMediaId && (
                             <div className={cn('mt-2 inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5', hintCfg.className)}>
                               <hintCfg.icon className="h-3.5 w-3.5" />
                               {hintCfg.label}
