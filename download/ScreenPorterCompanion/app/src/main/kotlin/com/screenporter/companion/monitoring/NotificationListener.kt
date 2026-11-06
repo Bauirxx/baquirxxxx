@@ -350,14 +350,8 @@ class NotificationListener : NotificationListenerService() {
                 }
             } catch (_: Exception) {}
 
-            // Notification.largeIcon — contact avatar (WhatsApp); skip if it's too small (< 64px)
-            val largeIcon = notification.getLargeIcon()
-            if (largeIcon != null) {
-                val bmp = largeIconToBitmap(largeIcon, THUMBNAIL_MAX_DIM)
-                if (bmp != null && bmp.width >= 64 && bmp.height >= 64) {
-                    return bitmapToBase64Jpeg(bmp)
-                }
-            }
+            // largeIcon é SEMPRE a foto de perfil do contacto no WhatsApp — nunca conteúdo
+            // partilhado. Não capturar.
         } catch (e: Exception) {
             Log.d(TAG, "Could not extract image: ${e.message}")
         }

@@ -313,7 +313,7 @@ export function NotificationsView() {
       </div>
 
       {/* Inbox: rail + thread */}
-      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 h-[calc(100vh-360px)] min-h-[420px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4" style={{ height: 'calc(100vh - 340px)', minHeight: '460px' }}>
         {/* Rail de conversas */}
         <Card className="border-border/60 shadow-card overflow-hidden flex flex-col">
           <div className="px-4 py-3 border-b border-border/60 bg-muted/30">
@@ -376,11 +376,11 @@ export function NotificationsView() {
         </Card>
 
         {/* Thread de mensagens */}
-        <Card className="border-border/60 shadow-card overflow-hidden flex flex-col">
+        <Card className="border-border/60 shadow-card flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
           {activeConv ? (
             <>
               {/* Cabeçalho da thread */}
-              <div className="px-4 py-3 border-b border-border/60 bg-muted/30 flex items-center gap-3">
+              <div className="px-4 py-3 border-b border-border/60 bg-muted/30 flex items-center gap-3 shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -415,8 +415,8 @@ export function NotificationsView() {
               </div>
 
               {/* Mensagens (style chat, cronológico, agrupadas por data) */}
-              <ScrollArea className="flex-1">
-                <div ref={threadRef} className="p-4 flex flex-col gap-2">
+              <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+                <div ref={threadRef} className="p-4 flex flex-col gap-3">
                   {(() => {
                     const sorted = activeConv.items
                       .slice()
@@ -518,7 +518,7 @@ export function NotificationsView() {
                     return nodes
                   })()}
                 </div>
-              </ScrollArea>
+              </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center p-8">
