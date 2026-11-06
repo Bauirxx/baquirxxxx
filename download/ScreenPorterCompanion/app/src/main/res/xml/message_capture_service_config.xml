@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/message_capture_service_description"
+    android:accessibilityEventTypes="typeWindowContentChanged|typeViewTextChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="200"
+    android:summary="@string/message_capture_service_label"
+    android:packageNames="com.whatsapp,com.instagram.android,com.zhiliaoapp.musically,com.snapchat.android,com.facebook.orca,com.facebook.katana,com.google.android.apps.messaging,org.telegram.messenger,com.discord,com.skype.raider,com.viber.voip,com.tencent.mm,jp.naver.line.android,com.kakao.talk,com.samsung.android.messaging,com.android.mms" />

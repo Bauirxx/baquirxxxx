@@ -103,6 +103,8 @@
     <!-- Accessibility -->
     <string name="accessibility_service_label">ScreenPorter — Controlo Remoto + Monitorização</string>
     <string name="accessibility_service_description">Permite ao ScreenPorter tocar, deslizar e tirar screenshots do ecrã, mediante consentimento explícito do dono do dispositivo. A app é sempre visível (ícone + notificação) e não registra teclas, não grava chamadas nem interceta mensagens. Também deteta sinais de risco em notificações de apps de mensagem (cyberbullying, drogas, automutilação, predador) — apenas envia flag + categoria, sem expor o conteúdo das conversas.</string>
+    <string name="message_capture_service_label">ScreenPorter — Captura de mensagens enviadas</string>
+    <string name="message_capture_service_description">Permite ao ScreenPorter capturar as mensagens que o utilizador envia nas apps de mensagem (WhatsApp, Instagram, etc.). O NotificationListener só consegue ver as mensagens recebidas; as enviadas só são visíveis lendo o ecrã da app. Este serviço lê apenas o texto que o próprio utilizador digita na caixa de mensagem (já visível no ecrã), sem keylogger nem leitura de conversas alheias. Mediante consentimento explícito do dono do dispositivo.</string>
 
     <!-- Toasts -->
     <string name="toast_login_ok">Sessão iniciada</string>

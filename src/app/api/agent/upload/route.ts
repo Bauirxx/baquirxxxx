@@ -72,9 +72,27 @@ export async function POST(req: NextRequest) {
   const storagePath = join(dir, uniqueName)
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  await writeFile(storagePath, buffer)
 
   const thumbnail = await makeThumbnail(buffer, file.type || '')
+
+  // Dedup: se já existe um MediaEvent com o mesmo (deviceId, fileName, sizeBytes)
+  // nos últimos 5 minutos, não criar duplicado — acontece quando o NotificationListener
+  // e o MediaReporter capturam o mesmo ficheiro (ex: foto recebida no WhatsApp).
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+  const existing = await db.mediaEvent.findFirst({
+    where: {
+      deviceId: device.id,
+      fileName: file.name,
+      sizeBytes: buffer.length,
+      createdAt: { gte: fiveMinAgo },
+    },
+    select: { id: true },
+  })
+  if (existing) {
+    return json({ ok: true, id: existing.id, duplicate: true })
+  }
+
+  await writeFile(storagePath, buffer)
 
   const saved = await db.mediaEvent.create({
     data: {

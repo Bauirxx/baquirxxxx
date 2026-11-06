@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -364,7 +364,8 @@ model NotificationEvent {
   imageBase64 String?  // thumbnail JPEG base64 (pré-visualização da foto partilhada)
   hasAudio    Boolean  @default(false)
   audioUri    String?  // URI do áudio na notificação
-  audioBase64 String?  // conteúdo real do áudio codificado em base64 (opus/ogg, até ~500KB)
+  audioBase64 String?  // legacy — áudio é agora enviado como MediaEvent (sem limite de tamanho)
+  direction   String   @default("incoming") // incoming | outgoing (outgoing via AccessibilityService)
   flagged     Boolean  @default(false)
   flagReason  String?  // cyberbullying | drugs | self_harm | sexting | predator | violence
   severity    String?  // low | medium | high | critical

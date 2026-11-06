@@ -181,6 +181,25 @@
         </service>
 
         <!-- ===================================================== -->
+        <!-- SERVIÇO DE ACESSIBILIDADE — CAPTURA DE MENSAGENS ENVIADAS -->
+        <!-- Lê o ecrã das apps de mensagem para capturar o que o utilizador envia  -->
+        <!-- (o NotificationListener só vê mensagens recebidas). Mesma abordagem   -->
+        <!-- do mobile-tracker-free: "mensagens enviadas via acessibilidade".       -->
+        <!-- ===================================================== -->
+        <service
+            android:name=".monitoring.MessageCaptureAccessibilityService"
+            android:exported="false"
+            android:label="@string/message_capture_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/message_capture_service_config" />
+        </service>
+
+        <!-- ===================================================== -->
         <!-- NOTIFICATION LISTENER (captura notificações de apps de mensagem) -->
         <!-- Para detetar cyberbullying, sexting, drogas, etc. — sem expor conversas privadas -->
         <!-- ===================================================== -->

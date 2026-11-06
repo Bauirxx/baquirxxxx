@@ -168,6 +168,8 @@ export async function POST(req: NextRequest) {
             hasAudio: Boolean(payload.hasAudio ?? false),
             audioUri: payload.audioUri ?? null,
             audioBase64: payload.audioBase64 ?? null,
+            direction: ['incoming', 'outgoing'].includes(payload.direction)
+              ? payload.direction : 'incoming',
             flagged: Boolean(payload.flagged ?? false),
             flagReason: payload.flagReason ?? null,
             severity: payload.severity ?? null,

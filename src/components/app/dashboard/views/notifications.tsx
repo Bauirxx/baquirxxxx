@@ -101,6 +101,7 @@ interface NotificationDTO {
   flagged: boolean
   flagReason: string | null
   severity: string | null
+  direction: string | null
   timestamp: string
   linkedMediaId: string | null
   linkedMediaType: string | null
@@ -429,6 +430,7 @@ export function NotificationsView() {
                     const nodes: React.ReactNode[] = []
                     for (const n of sorted) {
                       const flagged = n.flagged
+                      const isOutgoing = n.direction === 'outgoing'
                       const dateStr = new Date(n.timestamp).toDateString()
                       const showDateDivider = dateStr !== lastDateStr
                       lastDateStr = dateStr
@@ -452,17 +454,23 @@ export function NotificationsView() {
                       nodes.push(
                         <div
                           key={n.id}
+                          className={cn('flex', isOutgoing ? 'justify-end' : 'justify-start')}
+                        >
+                        <div
                           className={cn(
                             'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
-                            flagged
-                              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-bl-sm'
-                              : 'bg-muted/80 rounded-bl-sm'
+                            isOutgoing
+                              ? 'bg-primary text-primary-foreground rounded-br-sm'
+                              : flagged
+                                ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-bl-sm'
+                                : 'bg-muted/80 rounded-bl-sm'
                           )}
                         >
                           {/* hora + alerta */}
                           <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-[11px] text-muted-foreground font-medium">
+                            <span className={cn('text-[11px] font-medium', isOutgoing ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
                               {new Date(n.timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+                              {isOutgoing && ' · enviada'}
                             </span>
                             {flagged && (
                               <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border', SEVERITY_STYLES[n.severity ?? 'medium'] ?? SEVERITY_STYLES.medium)}>
@@ -474,11 +482,11 @@ export function NotificationsView() {
 
                           {/* corpo da mensagem */}
                           {body ? (
-                            <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                            <p className="whitespace-pre-wrap break-words leading-relaxed">
                               {body}
                             </p>
                           ) : (
-                            <p className="text-muted-foreground italic text-xs">{t('notifications.no.text')}</p>
+                            <p className="italic text-xs opacity-70">{t('notifications.no.text')}</p>
                           )}
 
                           {/* imagem capturada inline */}
@@ -561,6 +569,7 @@ export function NotificationsView() {
                               {hintCfg.label}
                             </div>
                           )}
+                        </div>
                         </div>
                       )
                     }

@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
       flagged: e.flagged,
       flagReason: e.flagReason,
       severity: e.severity,
+      direction: e.direction,
       timestamp: e.timestamp.toISOString(),
       linkedMediaId: linked?.id ?? null,
       linkedMediaType: linked?.type ?? null,
